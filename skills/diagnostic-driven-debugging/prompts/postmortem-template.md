@@ -68,6 +68,15 @@ time_spent_minutes: <integer>
 <- Which Oracle hypothesis was the breakthrough (A/B/C from triage order)>
 <If no oracle: write "—">
 
+## Open Risks
+<!-- Filled when the Phase 3 compound-paralysis cap fired (3-hypothesis rule-out budget exhausted before full disambiguation) OR when the controller is shipping a fix with known residual uncertainty. Write "—" if none. -->
+<If cap fired: list each still-plausible hypothesis that could NOT be ruled out within budget, with:>
+<- Hypothesis statement (1 sentence, mechanism + evidence)>
+<- Falsification test that was too expensive to run NOW (e.g., "requires staging deploy + 24h soak")>
+<- Triggering signal to watch for (what would indicate this hypothesis is the actual cause)>
+<- Recommended follow-up window (next sprint? after observability lands? when?)>
+<If no cap fired and no residual uncertainty: write "—">
+
 ## Prevention Notes
 <1-3 bullet points. Things future-you should check to prevent this bug class. Examples:>
 - <"When dispatching SET_POD, always block on the in-flight FETCH_LEADERBOARD before mutating pod state.">
@@ -123,6 +132,9 @@ No relevant atoms in distiller. This postmortem is the first record of this bug 
 
 ## Oracle Consult
 —
+
+## Open Risks
+—  (Phase 3 disambiguated within budget; no residual uncertainty.)
 
 ## Prevention Notes
 - When dispatching context-switch actions (SET_POD, SET_USER, SET_TENANT) in saga files, always cancel and await in-flight context-dependent fetches before the dispatch.

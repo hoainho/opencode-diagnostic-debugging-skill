@@ -749,7 +749,9 @@ After all 10 scenarios:
 | Phase 1 REPRODUCE (post-T9 wording) | All 10, including intermittent (Test 6, Test 10) | ✅ Robust |
 | Phase 2 EVIDENCE / MCP routing | All 12 routing rows exercised across the bank | ✅ Robust |
 | Phase 3 HYPOTHESIS (post-T9 cheapest-first + compound check) | All 10; compound check triggered in Tests 2, 4, 6, 8 | ✅ Robust |
+| Phase 3 paralysis cap (A3) | Tests 2, 4, 6, 8 each have exactly 3 hypotheses — all under the 3-hypothesis rule-out cap. No scenario currently exercises cap-firing (deferred to Stage B pilot for empirical case where cap saves a session) | ✅ Cap doesn't break existing scenarios |
 | Phase 4 FIX (post-T9 compound gate) | All 10; compound fixes shipped in Tests 2, 4, 6, 8 | ✅ Robust |
+| Phase 5 Open Risks subsection (A3) | New section; postmortem template + worked example updated; populated with `—` when no cap fires (current scenarios). Cap-fired scenario will land in Stage B pilot. | ✅ Schema in place |
 | Phase 5 POSTMORTEM (post-T7 frontmatter incl. severity, area_tag, security/concurrency enums) | All 10; uses new severity + area_tag + chained references | ✅ Robust |
 | Oracle escalation (Test 10 only — by design) | Test 10 | ✅ Robust — full T6 template → response → Phase 4 thread |
 | Anti-Pattern resistance | AP-8 dodged in Tests 2/4/8; AP-11 dodged in Test 6; AP-1 dodged across all | ✅ Robust |

@@ -84,6 +84,12 @@ This skill exists because LLM agents debug poorly by default. Without structure,
 │    sharing evidence with the confirmed one. COMPOUND root   │
 │    causes exist; fixing only one of two is AP-8 with extra  │
 │    steps. See anti-patterns AP-8.                           │
+│  • CAP: spend at most 3 hypotheses' worth of rule-out cost  │
+│    (1 hypothesis-cost = its falsification test cost). If    │
+│    you can't disambiguate within that budget, ship the      │
+│    highest-confidence single fix AND flag residual          │
+│    ambiguity in Phase 5 'Open Risks' subsection. Cap        │
+│    prevents analysis paralysis from forever-rule-out loops. │
 │                                                             │
 │  Reference: prompts/oracle-root-cause.md                    │
 └──────────────────────────────┬──────────────────────────────┘
