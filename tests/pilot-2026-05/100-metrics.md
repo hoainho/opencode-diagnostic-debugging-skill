@@ -163,7 +163,7 @@ These ARE the load-bearing metrics for Stage C3's decision rule. The wall-clock 
 - Bug-cluster clustering observed: 3/5 rank-2 hits are RELATED pilot atoms (Daily Bonus cluster), 2/5 are off-topic noise. Both patterns are pipeline-correct.
 
 ### Negative / Inconclusive
-- Wall-clock speedup is NOT measured (only gut-estimated; range 6-27% of baseline cited as descriptive-only)
+- Wall-clock speedup is NOT measured (gut-estimated per-pilot bullets only; see "Honest baseline estimate" section for prose details; no aggregated speedup range cited to prevent out-of-context quotation)
 - No production fix was applied; hypothesis correctness is unverified (would require backend assignees running falsification tests)
 - Daemon-down scoring; daemon-up generalization is unknown (recall behaviour under semantic embedding may differ in either direction)
 - Same-author bias is uncorrected (writer = querier vocabulary alignment artificially inflates recall scores by an unknown amount)
