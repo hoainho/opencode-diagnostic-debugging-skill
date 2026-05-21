@@ -58,7 +58,8 @@ Likely fix site if C confirmed: server-side `Sweeps.Awards.DailyBonusCalculator.
 
 ## Open Risks
 - **Falsification not executed**: 3 hypotheses formed but none confirmed. Backend assignee handoff required to inspect the API response.
-- **Cap rule semantics question**: 3 hypotheses share a single falsification test (1 API call discriminates all 3). The compound-paralysis cap (A3) treats this as "3 hypotheses = at cap" but the unique rule-out work is 1 unit. A3 cap should arguably measure "unique falsification cost" not "hypothesis count". Filing as Stage A3 follow-up.
+- **Cap rule semantics question**: 3 hypotheses share a falsification: A and C are discriminated by ONE API call (inspect both Status field and NextClaimDate); B needs the same call PLUS a reducer trace if Status returns `Collected`. Unique rule-out work ≈ 1.2 units, not 3. The compound-paralysis cap (A3) treats this as "3 hypotheses = at cap" but the unique cost is much lower. A3 cap should measure "unique falsification cost" not "hypothesis count". Filing as Stage A3 follow-up.
+- **Speedup claim n=1**: pilot wall-clock of ~2.5 min (diagnostic only, write-up excluded) vs gut-estimated baseline of ~15-20 min unguided is a 1-sample/gut-baseline claim, not a measured control. Do not propagate "5-7x faster" without the qualifier. Stage C1 will calibrate after 3-5 pilots complete.
 
 ## Prevention Notes
 - Add explicit `Pending → Collected` mapping path in `correctCurrentDay()` triggered by a server-provided auto-claim flag. If the server doesn't currently emit such a flag, add it to the v3/players/daily-bonus/status response.

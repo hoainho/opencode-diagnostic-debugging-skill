@@ -1,8 +1,8 @@
 # Pilot-1 trace — WIN-7993 (Daily Bonus auto-claim stuck)
 
 > **Bug**: WIN-7993 — Daily Bonus V2 reward stays in claimable state after server-side auto-claim succeeds.
-> **Wall-clock start**: 2026-05-21T08:07:28Z
-> **Wall-clock end**: 2026-05-21T08:09:56Z (~2.5 minutes real time)
+> **Diagnostic wall-clock** (recall + reproduce-spec + evidence + hypothesis formation; **excludes write-up**): 2026-05-21T08:07:28Z → 08:09:56Z, ~2.5 min.
+> **Write-up time** (trace + postmortem authoring): additional ~10 min outside the timed window. The two are separated because Stage C metrics aim to measure skill-as-diagnostic-aid, not skill-as-document-generator.
 > **Outcome**: PHASE-3-PARTIAL — hypotheses formed with code evidence, but falsification requires live API access not available to pilot controller. Documented for backend assignee handoff.
 
 ---
@@ -84,7 +84,9 @@ Key code observations:
 | B | Server returns `Status: Collected` correctly but client's `correctCurrentDay` clobbers it | Need API response sample | Same as A | 5 min |
 | C | `NextClaimDate` not advanced post-auto-claim; client computes `isClaimable=true` indefinitely | reducer.ts:53 strict gt-comparison | Inspect `NextClaimDate` value in API response | 5 min |
 
-**Triage**: A/B/C share the **same falsification cost and same falsification test** (inspect the API response). Run that single test → discriminates all three. Within the A3 compound-paralysis cap (3 hypotheses).
+**Triage**: A and C share the **same falsification test** (one API call inspecting both `Status` field AND `NextClaimDate` simultaneously). B requires the SAME call PLUS a reducer trace if Status returns `Collected` (to find where the clobber happens). So unique work is ~1.2 units, not strictly 1 — but well under the A3 cap of 3.
+
+This is exactly the cap-rule edge case the postmortem's Open Risks section flags: cap measures "hypothesis count" today but should measure "unique falsification cost" to give the right signal when hypotheses cluster around shared tests. Filing as Stage A3 follow-up.
 
 ## Phase 3 — STUCK + handoff (cannot run falsification)
 
@@ -120,7 +122,11 @@ Captured in `.sisyphus/postmortems/2026-05-21-pilot-1-WIN-7993-daily-bonus-auto-
 - **A4 fallback chain executed**: Row 1+8 → Row 5/9 (static code) → `evidence_quality: degraded`. This is exactly the A4 fallback the skill was designed to handle. Working as designed.
 - **Phase 3 cap-paralysis question**: 3 hypotheses with identical falsification cost is degenerate w.r.t. the cap (cap measures rule-out cost; here we rule out 3 with 1 test). Cap rule needs refinement: "3 hypotheses' worth of UNIQUE falsification cost" — not "3 hypotheses counted." Stage A3 follow-up worth filing.
 
-🟢 **Wall-clock**: ~2.5 minutes real time (Phase 0: 30s, Phase 1: 30s spec only, Phase 2: 60s code reads, Phase 3: 30s hypothesis formation). Pre-skill baseline (gut estimate): ~15-20 min of unguided ad-hoc grepping. Skill saves an estimated 5-7x on the diagnostic preamble, BUT the 5-min API-falsification still has to happen — it just happens with a hypothesis-shaped target instead of from-scratch.
+🟢 **Diagnostic wall-clock**: ~2.5 minutes real time (Phase 0: 30s, Phase 1: 30s spec only, Phase 2: 60s code reads, Phase 3: 30s hypothesis formation). Write-up of trace + postmortem was separate (~10min, NOT included in diagnostic wall-clock).
+
+⚠️ **Speedup claim — n=1, gut-baseline, NOT measured**: Pre-skill baseline of "~15-20 min unguided ad-hoc grep" is the **author's gut-estimate** by someone who already knows the diagnostic destination. It is an upper-bound guess, NOT a measured control. The implied "skill is 5-7x faster on diagnostic preamble" is therefore a **single-sample, baseline-by-introspection claim** — useful as a directional signal but NOT statistically valid and NOT a defensible headline number. Real speedup will be calibrated after 3-5 more pilots complete (Stage B2.2-B2.4) and metrics aggregate in Stage C1. Until then, **do not quote "5x faster" without the n=1/gut-baseline qualifier**.
+
+The 5-min API falsification still has to happen regardless of the skill — it just happens with a hypothesis-shaped target instead of from-scratch. The skill's contribution is to the diagnostic preamble, not to the irreducible falsification cost.
 
 ## Status
 
