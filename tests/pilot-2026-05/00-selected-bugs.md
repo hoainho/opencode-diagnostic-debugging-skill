@@ -45,9 +45,10 @@ Selecting 1 representative from the Daily Bonus cluster (WIN-7993, the most crit
 - **Type**: Bug, Pod 2, Sprint 83
 - **Priority**: P0 / BI-tracking
 - **Repos**: playsweeps-web (event emit site) + playsweeps-backend (PlayStudios.EventHub.Publisher) + playsweeps-bi-event-worker (consumer that surfaces the gap)
+- **Note (per B1 review C2)**: AGENTS.md also lists `playsweeps-bi-event` as a separate BI microservice (distinct from `playsweeps-bi-event-worker`). Pilot-2's Phase 2 evidence collection MUST disambiguate which consumer(s) surface the missing-field gap — the worker (EventHub trigger function) or the microservice or both. The `area_tag` in the Phase 5 postmortem must reflect the precise consumer ID, not just `bi/lp-earning`.
 - **Symptom verb**: "missing field", "BI event payload incomplete"
 - **Expected MCP routing**: Row 6 (data — event schema mismatch) + Row 9 (cross-repo build/integration) + Row 10 (env-config if field is config-driven)
-- **Expected protocol surface area**: cross-repo evidence collection (need to trace event from frontend emit → backend publisher → BI worker consume); Phase 5 postmortem with `area_tag: bi/lp-earning`; potentially `evidence_quality: partial` if can't run the full pipeline
+- **Expected protocol surface area**: cross-repo evidence collection (need to trace event from frontend emit → backend publisher → BI worker consume → possibly BI microservice); Phase 5 postmortem with precise `area_tag`; potentially `evidence_quality: partial` if can't run the full pipeline
 - **Why pilot**: only cross-cutting bug in current sprint; tests the skill's handling of bugs that span 3+ repos
 - **Reproducibility**: deterministic per cap-reach trigger
 
@@ -97,11 +98,19 @@ For each Pilot-N (B2):
 
 ## Stop conditions for individual pilots
 
-- If a pilot's bug is wider than scoped (touches features beyond what the symptom report says) → swap with backup bug:
-  - Backup-A: WIN-7992 (Daily Bonus animation click)
-  - Backup-B: WIN-7987 (Daily Bonus countdown delay)
-- If the skill protocol gets STUCK (controller can't proceed past a phase) → document the stuck point + recovery path in the pilot's postmortem. This is itself valuable Stage B data (skill defect).
-- If pilot budget exhausts before 3 are done → ship Stage B partial + explicitly flag insufficient data for Stage C.
+- **Trivial-confirmation stop-rule for Pilot-3** (per B1 review C1): if Phase 2 evidence collection completes in <10 minutes AND the fix is a single-symbol change (e.g., wrong icon import, single literal value), mark pilot as `outcome: trivial-confirmation` — protocol ran but exercised minimal surface area. Do NOT swap to backup in this case; trivial-confirmation IS still valuable Stage B data (proves the skill doesn't over-engineer simple bugs). Document the trivial outcome explicitly in the pilot's postmortem.
+- **Bug-wider-than-scoped stop**: if a pilot's bug turns out to touch features beyond what the symptom report says → swap per the **backup-activation rule** below.
+- **Skill-protocol-stuck stop**: if the skill can't proceed past a phase → document the stuck point + recovery path in the pilot's postmortem. This is itself valuable Stage B data (skill defect to fix in Stage A++).
+- **Pilot-budget exhaustion**: if budget runs out before 3 pilots complete → ship Stage B partial + explicitly flag insufficient data for Stage C.
+
+### Backup-activation rule (per B1 review C4)
+
+Backups (WIN-7992, WIN-7987) are both Daily Bonus archetype. Activating them would create 2 DB pilots and break the diversity matrix. Rule:
+
+- **Pilot-1 stalls (already DB)** → swap to Backup-A (WIN-7992) or Backup-B (WIN-7987). Diversity preserved because the slot was DB to begin with.
+- **Pilot-2, Pilot-3, or Pilot-4 stalls** → do NOT swap to backup. Abort that pilot and ship Stage B with N-1 pilots (3 instead of 4). Diversity beats sample size when the open-bug pool is DB-dominated (4 of 7 candidates were DB). Document the abort + reason in pilot-2026-05/01-aborted-<pilot>.md so Stage C can correctly weight the truncated dataset.
+
+This rule resolves the apparent contradiction of filtering DB bugs out for diversity yet listing them as backups — the backups are scoped to DB-slot replacement only.
 
 ## What this PR does NOT do
 
