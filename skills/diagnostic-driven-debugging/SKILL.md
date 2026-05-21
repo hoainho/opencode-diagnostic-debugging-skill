@@ -49,8 +49,9 @@ This skill exists because LLM agents debug poorly by default. Without structure,
 │  • Cannot reproduce → bug does not yet exist for you →       │
 │    request more context from user (this is a NEEDS_CONTEXT  │
 │    return, not a debugging session)                         │
-│  • Intermittent? Find a minimum repro that fails ≥ 50%; if   │
-│    truly random, treat it as the bug to debug                │
+│  • Intermittent? Find a minimum repro that fails often       │
+│    enough to collect Phase 2 evidence within ~5 attempts;    │
+│    if truly random, treat the randomness itself as the bug   │
 │                                                             │
 │  Output: a runnable repro committed to memory                │
 └──────────────────────────────┬──────────────────────────────┘
@@ -73,9 +74,16 @@ This skill exists because LLM agents debug poorly by default. Without structure,
 │      mechanism (HOW the bug arises)                         │
 │      supporting evidence (file:line)                        │
 │      falsification test (what would prove this wrong?)      │
-│  • Test top hypothesis FIRST                                │
+│      cost estimate (sec / min / requires-deploy)            │
+│  • Run the CHEAPEST falsification test first, unless one    │
+│    hypothesis is overwhelmingly likely. Cheap tests pay     │
+│    for themselves even if they falsify the leading guess.   │
 │  • All hypotheses falsified → consult oracle (template)     │
-│  • CANNOT proceed to fix until ONE hypothesis is confirmed  │
+│  • CANNOT proceed to fix until you've confirmed at least    │
+│    one hypothesis AND ruled out other still-plausible ones  │
+│    sharing evidence with the confirmed one. COMPOUND root   │
+│    causes exist; fixing only one of two is AP-8 with extra  │
+│    steps. See anti-patterns AP-8.                           │
 │                                                             │
 │  Reference: prompts/oracle-root-cause.md                    │
 └──────────────────────────────┬──────────────────────────────┘

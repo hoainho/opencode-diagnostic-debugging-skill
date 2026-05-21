@@ -241,7 +241,7 @@ Body would cite:
 
 | ID | Phase | File | Defect | Severity |
 |---|---|---|---|---|
-| DEFECT-1 | Phase 0 | `references/recall-first-checklist.md` | Step 4 rubric and Step 5 verification create classification ambiguity (clearly-relevant + prior-fix-present is undefined) | Major — controller can stall in Phase 0 |
+| DEFECT-1 | Phase 0 | `references/recall-first-checklist.md` | Step 4 rubric and Step 5 verification create classification labelling gap (clearly-relevant + prior-fix-present is never formally demoted; Step 5 line 77 does resolve the protocol so no stall) | Minor — label-hygiene, not stall. Downgraded from Major per T8 review verdict. |
 | DEFECT-2 | Phase 1 | `SKILL.md` | "Fails ≥ 50%" threshold is unsourced and creates a fake cliff | Minor — wording |
 | DEFECT-3 | Phase 3 | `SKILL.md` | "Test top hypothesis FIRST" should be "cheapest falsification test first unless one hypothesis is overwhelmingly likely" | Major — wrong triage doubles average debug time |
 | DEFECT-4 | Phase 3→4 | `SKILL.md` | No guidance for compound root causes; current wording suggests fix-then-test-next, which can mask one of two causes | Major — risks AP-8 (symptom fix) on compound bugs |
