@@ -1,0 +1,23 @@
+{
+  "name": "diagnostic-driven-debugging",
+  "version": "0.1.0",
+  "description": "6-phase structured debugging skill for opencode (Phase 0 RECALL + 5 investigation/fix phases): RECALL → REPRODUCE → EVIDENCE → HYPOTHESIS → FIX → POSTMORTEM. MCP-aware routing, memory-backed via omo-session-distiller. Ported from obra/superpowers and extended.",
+  "compatibility": "OpenCode",
+  "tags": [
+    "debugging",
+    "root-cause-analysis",
+    "diagnostics",
+    "mcp",
+    "memory",
+    "verification",
+    "anti-shotgun"
+  ],
+  "source": "github.com/obra/superpowers",
+  "ports": ["systematic-debugging: Reproduce → Diagnose/Hypothesize → Fix → Verify"],
+  "extensions": [
+    "Phase 0 RECALL via omo-session-distiller (new)",
+    "MCP routing table for Phase 2 EVIDENCE (new)",
+    "Phase 5 POSTMORTEM feedback loop (new)",
+    "oracle consult on Phase 3 stuck (new)"
+  ]
+}
