@@ -95,6 +95,7 @@ To upgrade the skill from PARTIAL to PRODUCTION-READY, the missing input is **C1
 - Compare time-to-hypothesis vs original time-to-merge from Jira ticket history
 - Cost: 1-2 hours; medium quality (Jira time-to-merge includes review + deploy, not just diagnostic)
 - Defensible enough to upgrade PARTIAL → PRODUCTION-READY with caveats
+- **Contamination caveat** (per C3 review C3): for bugs the controller previously postmortemed in this pilot (e.g., the 5 atoms from B2.1-B4), prior knowledge inflates Phase 0 recall speed and biases hypothesis formation. Path B measurements on previously-postmortemed bugs should be treated as **upper-bound** estimates; pick NEW bugs the controller has never touched for the cleanest signal.
 
 ### Path C: Defer
 - Accept PARTIAL as the long-term status
