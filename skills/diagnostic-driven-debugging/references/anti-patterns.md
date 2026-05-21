@@ -85,13 +85,17 @@ Adapted from obra/superpowers' Red Flag + Excuse→Reality format, with opencode
 
 ---
 
-### AP-8 — Fix the symptom, not the root cause
+### AP-8 — Fix the symptom, not the root cause (includes the "partial-fix" compound-cause variant)
 
-**Behavior**: "Tournament shows empty? I'll add a defensive `?? []` here." Bug stops appearing. Done.
+**Behavior**: Two failure modes covered here:
+- *Symptom variant*: "Tournament shows empty? I'll add a defensive `?? []` here." Bug stops appearing. Done.
+- *Partial-fix / compound variant*: Phase 3 confirmed hypothesis A is a real cause and the test passes — but two hypotheses shared evidence. You ship fix A without confirming whether B was also causal. The bug appears to recede; weeks later it returns from cause B that was always there. (This is the compound-root-cause case SKILL.md Phase 3 now gates against.)
 
-**Why it's blocked**: The empty list had a cause (race, wrong dispatch order, missing fetch). The `?? []` masks it. It reappears elsewhere — same root cause, different surface — and now you have two places to investigate next time.
+**Why it's blocked**: Both variants ship "less than the whole cause." The symptom variant fixes nothing structural; the partial-fix variant fixes one strand of a compound cause. Both produce the same outcome — the bug returns at a slightly different surface, and now two debugging sessions accumulate to chase one root cause that should have been finished in one.
 
-**Correct alternative**: In Phase 3, ask "why is this list empty?" until the answer is structural ("the fetch saga doesn't await its dependency"), not surface ("the variable is undefined"). Fix at the structural layer.
+**Correct alternative**: In Phase 3:
+- For the symptom variant — ask "why is this list empty?" until the answer is structural ("the fetch saga doesn't await its dependency"), not surface ("the variable is undefined"). Fix at the structural layer.
+- For the partial-fix variant — after confirming hypothesis A, explicitly verify each other hypothesis that shared evidence: either falsify it (the confirmed A subsumes its evidence) or confirm it as a co-cause and fix both atomically. Per SKILL.md Phase 3 gate: "confirmed at least one hypothesis AND ruled out other still-plausible ones sharing evidence."
 
 ---
 
