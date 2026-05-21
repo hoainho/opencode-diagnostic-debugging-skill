@@ -1,0 +1,162 @@
+---
+name: diagnostic-driven-debugging
+description: "MUST USE for any non-trivial bug, crash, regression, perf drop, intermittent failure, or 'why is X not working' investigation. Enforces a 5-phase root-cause-first protocol: Phase 0 RECALL (search past session atoms via omo-session-distiller before investigating), Phase 1 REPRODUCE (deterministic trigger), Phase 2 EVIDENCE (MCP routing table picks the right tool per bug class — mcp-console-hub for Redux/network/runtime, ohmyperf for perf regression, database-inspector for data bugs, lsp_diagnostics for type bugs, grep_app for OSS pattern, context7 for library quirks), Phase 3 HYPOTHESIS (ranked, with falsification test each — no 'try a fix and see' allowed), Phase 4 FIX (minimal, root-cause-targeted), Phase 5 POSTMORTEM (capture for future recall hits). MUST USE when: user says 'debug this', 'fix this bug', 'why is X broken', 'tại sao X không chạy', 'X bị lỗi', 'regression after Y', 'broke after deploy', 'intermittent', 'flaky', 'đôi khi lỗi', 'performance regression', 'chậm hơn trước', 'crash on Z', 'TypeError', 'null pointer', 'API returns 500', 'state is wrong', 'render is broken'. Also triggers AFTER subagent-driven-development returns SPEC_FAIL twice for the same task (escalation), or AFTER pr-code-reviewer flags a suspected bug. Triggers when bug is non-trivial (not a typo, not a missing import), when shotgun debugging would waste time, when root cause matters more than speed of fix. When in doubt about whether to use this skill, USE IT — every 'I'll just try this and see' is paid for in lost hours."
+compatibility: "OpenCode"
+metadata:
+  version: "0.1.0"
+  source: "Adapted from github.com/obra/superpowers (skills/systematic-debugging) — Jesse Vincent"
+  ports: ["4-phase root-cause protocol"]
+  extensions: ["Phase 0 RECALL via omo-session-distiller", "MCP routing table", "Phase 5 POSTMORTEM feedback loop", "oracle consult on Phase 3 stuck"]
+---
+
+# Diagnostic-Driven Debugging
+
+## What This Skill Does
+
+You become a **diagnostician**. You do NOT touch production code until you have:
+1. Checked whether this bug was already solved in a past session (Phase 0)
+2. Reproduced the bug deterministically (Phase 1)
+3. Collected evidence from the RIGHT MCP for the bug class (Phase 2)
+4. Formed ≥ 2 falsifiable hypotheses (Phase 3)
+
+Only then do you fix (Phase 4), and you ALWAYS write a postmortem (Phase 5) so future bug encounters get a Phase 0 hit instead of an investigation.
+
+This skill exists because LLM agents debug poorly by default. Without structure, the default behavior is **shotgun debugging** — guess, edit, retry. The 5-phase gate makes guessing structurally impossible.
+
+---
+
+## The 5-Phase Pipeline
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  PHASE 0 — RECALL    "Have we debugged this before?"        │
+│                                                             │
+│  • Query omo-session-distiller_recall with bug keywords     │
+│  • Score ≥ 0.7 → read atom resolution → may skip to Phase 4 │
+│  • Score 0.5–0.7 → read but verify before applying          │
+│  • Score < 0.5 OR no hits → proceed to Phase 1              │
+│                                                             │
+│  Reference: references/recall-first-checklist.md            │
+└──────────────────────────────┬──────────────────────────────┘
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│  PHASE 1 — REPRODUCE   Deterministic trigger required       │
+│                                                             │
+│  • A single command, URL, click sequence, or test that       │
+│    triggers the bug 100% of the time                        │
+│  • Cannot reproduce → bug does not yet exist for you →       │
+│    request more context from user (this is a NEEDS_CONTEXT  │
+│    return, not a debugging session)                         │
+│  • Intermittent? Find a minimum repro that fails ≥ 50%; if   │
+│    truly random, treat it as the bug to debug                │
+│                                                             │
+│  Output: a runnable repro committed to memory                │
+└──────────────────────────────┬──────────────────────────────┘
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│  PHASE 2 — EVIDENCE    MCP routing → multi-source data      │
+│                                                             │
+│  • Classify bug from symptom (see MCP routing table)        │
+│  • Dispatch MCP queries IN PARALLEL where possible          │
+│  • Read full output — never skim                            │
+│  • Output: evidence bundle (raw outputs + file:line refs)   │
+│                                                             │
+│  Reference: references/mcp-routing-table.md                 │
+└──────────────────────────────┬──────────────────────────────┘
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│  PHASE 3 — HYPOTHESIS  Ranked + falsifiable                 │
+│                                                             │
+│  • State ≥ 2 hypotheses, each with:                          │
+│      mechanism (HOW the bug arises)                         │
+│      supporting evidence (file:line)                        │
+│      falsification test (what would prove this wrong?)      │
+│  • Test top hypothesis FIRST                                │
+│  • All hypotheses falsified → consult oracle (template)     │
+│  • CANNOT proceed to fix until ONE hypothesis is confirmed  │
+│                                                             │
+│  Reference: prompts/oracle-root-cause.md                    │
+└──────────────────────────────┬──────────────────────────────┘
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│  PHASE 4 — FIX         Minimal, root-cause-targeted          │
+│                                                             │
+│  • Change ONLY what the confirmed root cause requires       │
+│  • NO incidental refactor, NO cleanup, NO style fixes       │
+│  • Reproduce command from Phase 1 must now succeed          │
+│  • Regression test added (RED first, then GREEN — see TDD)  │
+│  • lsp_diagnostics clean on every changed file              │
+│                                                             │
+│  Anti-patterns blocked: see references/anti-patterns.md     │
+└──────────────────────────────┬──────────────────────────────┘
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│  PHASE 5 — POSTMORTEM  Capture for future recall hits        │
+│                                                             │
+│  • Write to .sisyphus/postmortems/YYYY-MM-DD-<slug>.md      │
+│  • Format optimized for omo-session-distiller harvesting    │
+│  • Closes the loop: this bug → atom → recall next time      │
+│                                                             │
+│  Reference: prompts/postmortem-template.md                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## When to Use This Skill
+
+**Use it for**:
+- Crashes (uncaught exceptions, segfaults, panics)
+- Wrong output / wrong state / wrong render
+- Regressions ("worked yesterday")
+- Performance drops (LCP, INP, TTFB regressions)
+- Intermittent / flaky failures
+- Library-quirk bugs ("docs say X but it does Y")
+- Data bugs (nulls where there shouldn't be, RI violations)
+
+**Don't use it for**:
+- Typos / missing imports → just fix them
+- Lint errors with obvious cause → just fix them
+- "Add feature X" requests → not a bug, use `subagent-driven-development`
+- Unknown behavior you haven't tried to understand yet → read code first, then if confused, use this skill
+
+---
+
+## Controller Hard Rules
+
+1. **No code edits before Phase 4.** Investigation is read-only. If you find yourself editing a `.ts` / `.py` / `.cs` file during Phase 0–3, STOP — that's shotgun debugging.
+2. **Phase 0 is non-skippable** unless the bug is trivial enough to skip this whole skill. If you're using this skill, you must check recall first.
+3. **No fix without a confirmed hypothesis.** "I think it might be X, let me try" is forbidden. State the hypothesis, design the falsification test, run it, THEN fix.
+4. **Phase 5 is non-skippable.** Every debug session ends with a postmortem. Even if recall hit immediately and the fix took 2 minutes — write the postmortem. The compound effect is the point.
+5. **The fix touches ONLY root cause.** Side cleanups go in a separate task.
+6. **Reproduce command from Phase 1 is the verification.** If it now succeeds, the bug is gone. If it still fails, your hypothesis was wrong — back to Phase 3.
+
+---
+
+## Composes With
+
+- **`omo-session-distiller`** — Phase 0 reads atoms; Phase 5 writes postmortems that future harvests turn into atoms
+- **`subagent-driven-development`** — when `SPEC_FAIL` recurs, controller invokes this skill before retrying
+- **`pr-code-reviewer`** — when reviewer flags a suspected bug, hand off to this skill
+- **`oracle` agent** — consulted in Phase 3 when all hypotheses falsify
+- **`mcp-console-hub`** — primary evidence source for frontend runtime bugs
+- **`ohmyperf`** — primary evidence source for perf regressions
+- **`database-inspector`** — primary evidence source for data-layer bugs
+
+---
+
+## Files in This Skill
+
+- [SKILL.md](./SKILL.md) — this file (5-phase protocol, hard rules)
+- [skill.json](./skill.json) — registry metadata
+- [references/mcp-routing-table.md](./references/mcp-routing-table.md) — symptom → bug class → MCP
+- [references/anti-patterns.md](./references/anti-patterns.md) — 8+ blocked anti-patterns
+- [references/recall-first-checklist.md](./references/recall-first-checklist.md) — Phase 0 procedure
+- [prompts/oracle-root-cause.md](./prompts/oracle-root-cause.md) — Phase 3 fallback template
+- [prompts/postmortem-template.md](./prompts/postmortem-template.md) — Phase 5 capture template
+
+---
+
+## Attribution
+
+Protocol structure adapted from [obra/superpowers](https://github.com/obra/superpowers) `skills/systematic-debugging/` by Jesse Vincent. Extensions (Phase 0 RECALL, MCP routing table, Phase 5 POSTMORTEM, opencode tool integration) are new and built specifically for opencode's runtime.
