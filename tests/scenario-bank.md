@@ -618,9 +618,11 @@ Because the regression test exists+enabled+fails, the fast-path is gated by ONE 
 ### Phase 5 — Postmortem
 - `bug_class: regression` (a recurrence specifically)
 - `severity: sev1` (financial impact)
+- `evidence_quality: verified` (post-A4 field — primary MCPs all available)
 - Phase 0 Recall Result: `yes-fast-path` — the atom existed, the fix was just refactored away
 - **References the original atom** so distillation chains them. Future Phase 0 queries for either bug surface BOTH atoms, with the chain clear: "first occurrence — fix — refactor regression — re-fix-with-guard."
 - Prevention: the HISTORY comment convention + CI lint enforcement
+- **A5 manual export step** (post-A5): if this postmortem was written into `.sisyphus/postmortems/` rather than inline in the session, run the manual harvest export (see postmortem-template.md "Manual Harvest Export" section) to produce paired atom + solution files under `~/.config/opencode/memory/<atoms,solutions>/playsweeps-backend/`. Without this step, the chained-atom claim above is aspirational — the auto-harvester won't see the new postmortem.
 
 ### Protocol resilience check (post-A2)
 ✅ Step 2 (code-presence): fix is gone, correctly detected. ✅ Step 3 (regression-test gate, A2 addition): test exists, NOT skipped, currently FAILS — branch "Test exists, enabled, currently FAILS" fires correctly. ✅ Skip-detection branch implemented and explicitly checked (closes AP-11 trap at the recall layer). ✅ Phases 1-3 compressed to ~3-5 minutes total because the atom's verbatim fix is sufficient (pure-deletion refactor at f1a2b3c4). ✅ Phase 4 re-runs the regression test as the verification gate (red → green). ✅ Phase 5 postmortem references chained_atoms.

@@ -44,6 +44,21 @@ git clone https://github.com/hoainho/opencode-diagnostic-debugging-skill.git dia
 #    - Or load manually: skill(name="diagnostic-driven-debugging")
 ```
 
+### Important — Phase 5 manual harvest export (A1 finding)
+
+The `omo-session-distiller` auto-harvester reads opencode **session storage**, not project files. A postmortem committed to `.sisyphus/postmortems/<file>.md` will NOT be visible to Phase 0 recall in future sessions — unless you also export it as paired atom + solution files to `~/.config/opencode/memory/`.
+
+**Two paths to make postmortems recall-able:**
+
+1. **Auto-harvest path** (free): write the postmortem inline in your opencode session chat. The next `omo-session-distiller harvest` cycle distills it into atoms automatically.
+2. **Manual export path**: when the postmortem lives in `.sisyphus/postmortems/`, follow the **Manual Harvest Export** section of [`prompts/postmortem-template.md`](./skills/diagnostic-driven-debugging/prompts/postmortem-template.md). This produces the paired atom + solution files the harvester needs.
+
+Without one of these, the skill still runs Phase 0 → Phase 5 correctly for the CURRENT bug, but the feedback loop (this debug session → future Phase 0 hit) is broken. The Stage A1 round-trip test ([tests/harvest-roundtrip.md](./tests/harvest-roundtrip.md)) documents the full discovery.
+
+### Environment requirements (A4 finding)
+
+The skill assumes these MCPs are registered: `mcp-console-hub`, `ohmyperf`, `omo-session-distiller`, `database-inspector`, `context7`, `grep_app`, `lsp_*`. When one is missing, the **MCP-unavailable fallback** lines in [`references/mcp-routing-table.md`](./skills/diagnostic-driven-debugging/references/mcp-routing-table.md) route to a generic substitute, and the postmortem's `evidence_quality` field captures the degradation. The skill gracefully handles partial MCP coverage — except for `omo-session-distiller`, where Phase 0 falls back to degraded substitutes (filesystem grep on prior postmortems, `session_search`, `git log -S`) and may skip outright if zero substitutes are reachable.
+
 ## How it composes with the opencode ecosystem
 
 | Other skill / tool | Relationship |

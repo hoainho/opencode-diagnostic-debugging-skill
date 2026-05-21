@@ -206,6 +206,99 @@ No relevant atoms in distiller. This postmortem is the first record of this bug 
 
 ---
 
+## Manual Harvest Export (A5 — required for Phase 0 recall to work)
+
+> **Critical context from A1 finding**: The `omo-session-distiller` auto-harvester reads opencode SESSION storage (sessions → archives → atoms). It does NOT scan project files like `.sisyphus/postmortems/*.md`. A postmortem committed to your repo is invisible to Phase 0 recall UNLESS you also export it to the distiller's memory directory.
+
+### Why the manual step exists
+
+There are two paths for a postmortem to become a recall-able atom:
+
+1. **Auto-harvest path** (no manual step): if you wrote the postmortem's content inside an opencode session conversation (chat messages between you and the agent), it becomes part of the session transcript. The next `omo-session-distiller harvest` cycle distills those messages into atoms automatically. This is the cheapest path.
+
+2. **Manual export path** (use when postmortem is .sisyphus/ + git-tracked): when the postmortem lives only at `.sisyphus/postmortems/YYYY-MM-DD-<slug>.md` (e.g., written by tooling, by another engineer, or committed without an opencode session), the harvester won't see it. You must manually export it as a paired atom + solution file.
+
+### The export procedure
+
+Given a postmortem at `.sisyphus/postmortems/2026-05-21-my-bug.md`:
+
+```bash
+# 1. Identify the repo (the postmortem's frontmatter has `repo: <slug>`)
+REPO=$(grep '^repo:' .sisyphus/postmortems/2026-05-21-my-bug.md | awk '{print $2}')
+
+# 2. Ensure memory dirs exist
+mkdir -p ~/.config/opencode/memory/atoms/$REPO
+mkdir -p ~/.config/opencode/memory/solutions/$REPO
+
+# 3. Write the ATOM file (the searchable index entry)
+cat > ~/.config/opencode/memory/atoms/$REPO/atom-2026-05-21-my-bug.md <<'EOF'
+---
+type: atom
+id: atom-2026-05-21-my-bug
+verified_at: 2026-05-21
+ticket: <jira-key or N/A>
+tags: [<keyword1>, <keyword2>, ...]    # use postmortem's area_tag + bug_class + key file/feature names
+applies_to: [<repo-slug>]
+file: <primary file path from Fix section>
+related_solution: solution-2026-05-21-my-bug
+---
+
+**Fact**: <copy the Bug Summary line from the postmortem; this is what recall will grep>
+
+**Evidence**: <copy 1-2 most actionable lines from Evidence Sources Used — keep keyword-rich>
+
+**Implication**: <numbered list copied from Root Cause + Prevention Notes, keyword-rich phrasing>
+
+**Related files**: <copy file:line refs from Fix section>
+EOF
+
+# 4. Write the SOLUTION file (the rich linked artifact)
+cat > ~/.config/opencode/memory/solutions/$REPO/solution-2026-05-21-my-bug.md <<'EOF'
+---
+type: solution
+id: solution-2026-05-21-my-bug
+problem: "<copy Bug Summary>"
+verified_at: 2026-05-21
+ticket: <jira-key or N/A>
+sessions: [<current-session-id or "n/a">]
+tags: [<same tags as atom>]
+applies_to: [<repo-slug>]
+related_atoms: [atom-2026-05-21-my-bug]
+---
+
+<copy the FULL body of the postmortem starting from ## Bug Summary onward>
+EOF
+
+# 5. Verify the export round-trips through recall
+omo-session-distiller_recall(query="<keyword phrase from Bug Summary>", limit=3)
+# → the new atom should appear in results, score should be ≥10 (daemon-down) or relevant (daemon-up)
+```
+
+### When you don't need to do this
+
+Skip the manual export when:
+
+- You wrote the postmortem inline in this opencode session's chat (auto-harvest will pick it up on next distill cycle)
+- The repo doesn't yet have `omo-session-distiller` installed (no recall = no value in exporting)
+- The postmortem is for a private/sensitive bug whose contents must NOT propagate to recall (rare; if applies, document the exclusion in the postmortem's Open Risks)
+
+### Schema alignment with auto-harvested atoms
+
+Atoms produced by manual export use the same schema as auto-harvested atoms (verified by A1 round-trip test). Required fields:
+- `type: atom` (literal)
+- `id: atom-YYYY-MM-DD-<slug>` (must be unique; the manual export's id should match the postmortem's slug)
+- `tags:` (yaml list of strings — recall queries match against these in keyword mode)
+- `applies_to: [<repo-slug>]` (must match a known repo; recall's `repo=` filter uses this)
+- Body MUST start with `**Fact**:` paragraph for the Problem field to be parsed correctly
+
+Optional but recommended:
+- `related_solution:` link to paired solution file
+- `file:` primary file path from the Fix section
+- `ticket:` Jira key for cross-reference
+- A1-introduced extension fields (`evidence_quality`, `degraded_reason`, etc.) — preserved as YAML metadata
+
+---
+
 ## Filename Convention
 
 ```
