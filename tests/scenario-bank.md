@@ -564,7 +564,7 @@ omo-session-distiller_recall(query="daily bonus double award friday")
 > Problem: "Daily Bonus award engine doubles awards on Fridays because the `friday_special_multiplier` flag was meant to be 0.5x bonus weight but the multiplier was implemented as 2.0x (the dev misread the spec)."
 > Resolution: "Patched `DailyBonusCalculator.cs` to read multiplier as inverse. Commit b3c4d5e6. Added regression test."
 
-### Step 5 — Verify prior fix is still present
+### Step 5 — Verify prior fix is still present (Step 2 — code-presence check)
 ```pseudocode
 lsp_find_references(filePath="playsweeps-backend/Sweeps.Awards/DailyBonusCalculator.cs", line=88, character=15)
 rtk git log --oneline -- playsweeps-backend/Sweeps.Awards/DailyBonusCalculator.cs | head -10
@@ -572,10 +572,43 @@ rtk git log --oneline -- playsweeps-backend/Sweeps.Awards/DailyBonusCalculator.c
 
 **Result**: a recent commit (3 days ago, `f1a2b3c4` titled "refactor: simplify DailyBonusCalculator") REMOVED the inverse-multiplier guard that fixed the bug 3 months ago. The original spec misreading is back.
 
-**Per T9 DEFECT-1 Step 5 rule**: "If the fix is **gone**: classification stays Clearly Relevant — that's likely the bug. Re-apply with appropriate adaptation, then continue to Phase 5."
+### Step 5 — Verify regression test exists, enabled, passing (Step 3 — A2 NEW addition)
 
-### Phase 1-3 — Skipped (fast-path)
-Step 5's verification (prior fix gone) **is** the diagnosis: the bug is the regression of a previously-fixed issue at a known commit. No new investigation needed — the atom's resolution is the fix, with adaptation. Phase 4 will verify by re-applying the guard and re-running the original regression test from atom-2026-02-15.
+Per A2's Step 3 (closes the stale-fix loophole): even when the fix is gone, verify the regression test that originally proved it works. Four branches: missing / skipped / failing / passing. The decision drives whether fast-path is safe.
+
+```pseudocode
+# From atom-2026-02-15-daily-bonus-double-award Resolution:
+# "Added regression test in tests/awards/DailyBonusCalculator.Tests.cs::FridayMultiplierShouldHalveBonus"
+rtk grep "FridayMultiplierShouldHalveBonus" tests/        # exists? ✓
+rtk grep "\.Skip\|\[Skip" tests/awards/DailyBonusCalculator.Tests.cs    # disabled? ✗
+rtk test --filter FridayMultiplierShouldHalveBonus        # run it
+```
+
+**Result**:
+- Test file exists in `tests/awards/DailyBonusCalculator.Tests.cs` ✓
+- Not skipped (no `Skip=` attribute on the `[Fact]`) ✓
+- Running it: **FAILS** (red) — exactly because the guard is gone (commit `f1a2b3c4` removed both the guard AND the regression coverage was never broken because the test was for the bug's WRONG-behavior assertion, which now passes... wait)
+
+**Important clarification** (added during A2 review fixes): in this scenario the regression test asserts `bonus == base * 0.5` for Fridays (the CORRECT post-fix behavior). With the guard removed, the actual computation returns `base * 2.0`, so the test ASSERTS-FAILS — exactly the "test exists, enabled, currently fails against current HEAD" branch.
+
+**Decision**: per Step 3's "Test exists, enabled, currently FAILS" branch: "there IS a regression at the same site, but the atom's prescribed fix may not address this variant. Demote to Partially Relevant; use atom as Phase 3 hypothesis seed."
+
+This is **the fast-path branch when the atom's verbatim fix is sufficient** — i.e., reapplying the original guard from the atom restores `0.5` multiplier and the failing test goes green. No adaptation needed because `f1a2b3c4` was a pure-deletion refactor (didn't change surrounding APIs).
+
+### Phases 1-3 — Compressed (post-A2 fast-path with verification gate)
+
+Because the regression test exists+enabled+fails, the fast-path is gated by ONE step: re-apply the atom's verbatim fix and confirm the test goes green.
+
+- **Phase 1** (repro): the failing test IS the repro. Done.
+- **Phase 2** (evidence): `git show f1a2b3c4` confirms pure-deletion refactor. ~30 seconds.
+- **Phase 3** (hypothesis): single adapted-hypothesis with empirical falsification: "reapply atom's verbatim fix → test goes green." Cost: ~2 minutes including re-test.
+- **Phase 4** (fix): patch applied; test re-run; **green**. Verification gate passes.
+
+**Total time post-A2**: ~5-8 minutes (vs pre-A2 verbatim fast-path which was ~5 minutes WITHOUT the safety check that the fix actually addresses the regression).
+
+**The marginal cost of A2's Step 3 in this scenario is ~30 seconds-2 minutes** (test runtime is the bound — this is a unit test ~600ms per run, fast). For atoms whose regression test is a heavyweight integration test (DB fixtures, container spin-up, network mocks — common in `playsweeps-backend.IntegrationTests` or `sweeps-automated-test` E2E suites), the marginal cost is **2-15 minutes per run**. The cost is still amortized across propagation-bug prevention, but the "Phase 0 is always cheap" framing must be qualified for heavyweight regression tests.
+
+> **Note vs original T9 framing**: Pre-A2, this scenario fast-pathed directly to Phase 4 with verbatim fix reapplication and ZERO test re-verification. The A2 Step 3 addition keeps the fast-path **as long as the test branch resolves favorably** (test exists, enabled, and failing-in-a-way-that-the-verbatim-fix-resolves). Only adaptation-required cases (e.g., refactor changed surrounding API, requiring atom's fix to be modified) take the demoted "Partially Relevant + Phase 3 hypothesis seed" path. This scenario is still the bank's fast-path exemplar — just with a 30s-2min verification gate instead of zero verification.
 
 ### Phase 4 — Fix
 1. Revert the relevant lines of `f1a2b3c4` that removed the guard
@@ -589,10 +622,12 @@ Step 5's verification (prior fix gone) **is** the diagnosis: the bug is the regr
 - **References the original atom** so distillation chains them. Future Phase 0 queries for either bug surface BOTH atoms, with the chain clear: "first occurrence — fix — refactor regression — re-fix-with-guard."
 - Prevention: the HISTORY comment convention + CI lint enforcement
 
-### Protocol resilience check
-✅ Phase 0 fast-path executed correctly: tentative Clearly Relevant from Step 4 → confirmed by Step 5 (fix gone) → fast-pathed to Phase 4 without re-doing 2-3. ✅ Phase 5 still written even though Phases 1-3 were skipped (per T9 DEFECT-1 fix: "still write the postmortem; this regression is itself worth recording"). ✅ The chain atom→regression-atom is exactly the memory-compounding loop the skill exists to create.
+### Protocol resilience check (post-A2)
+✅ Step 2 (code-presence): fix is gone, correctly detected. ✅ Step 3 (regression-test gate, A2 addition): test exists, NOT skipped, currently FAILS — branch "Test exists, enabled, currently FAILS" fires correctly. ✅ Skip-detection branch implemented and explicitly checked (closes AP-11 trap at the recall layer). ✅ Phases 1-3 compressed to ~3-5 minutes total because the atom's verbatim fix is sufficient (pure-deletion refactor at f1a2b3c4). ✅ Phase 4 re-runs the regression test as the verification gate (red → green). ✅ Phase 5 postmortem references chained_atoms.
 
-This test is **the highest-value protocol exercise in the bank** — it's the only one where Phase 0 alone solves the bug, and proving Phase 0 fast-paths cleanly is half the skill's design premise.
+This test is **the bank's fast-path exemplar** — proves that fast-path is STILL achievable post-A2 when the test branch resolves favorably (exists+enabled+failing-resolvable-by-verbatim-fix). The A2 Step 3 gate adds a 30s-2min verification cost (for unit-test regression tests) and prevents the propagate-wrong-fix class. For heavyweight regression tests (integration/E2E), the gate cost is 2-15min — still amortized against propagation-bug prevention but the "Phase 0 always cheap" claim only applies when the cited regression test is lightweight.
+
+**A2 Step 3 contract**: fast-path requires (fix-gone) AND (test exists, enabled, fails). Pre-A2: only fix-gone. The added test-gate is what makes fast-path safe in the presence of refactors that delete fixes without updating regression coverage.
 
 ---
 

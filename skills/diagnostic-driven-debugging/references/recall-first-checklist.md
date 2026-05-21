@@ -76,8 +76,28 @@ If you got a Clearly Relevant hit and intend to fast-path:
    omo-session-distiller_expand(atom_id="<atom-id-or-slug>", around=2)
    ```
 2. **Verify the previously-applied fix is still in the code**. Bug regressions happen — the prior fix may have been refactored away. Use `lsp_find_references` or `rtk grep` on the key symbols from the Resolution.
-3. If the fix is **still present**: **demote the classification to Partially Relevant**. This is NOT the same bug — the prior fix didn't cover this case. The atom remains useful as a Phase 3 hypothesis seed. Continue to Phase 1.
-4. If the fix is **gone**: classification stays Clearly Relevant — that's likely the bug. Re-apply with appropriate adaptation, then continue to Phase 5 (still write the postmortem; this regression is itself worth recording).
+3. **Verify the prior fix's regression test exists, is enabled, and currently passes against the current working tree.** The fix's presence in code is necessary but not sufficient — the test that proved it works must also be present, enabled, AND green AGAINST THE CURRENT WORKING TREE (not historical CI status against a different SHA). Steps:
+   - From the atom's Resolution, identify the test name(s) added when the original fix landed (atoms typically cite test paths like `tests/integration/foo.test.ts` or test names like `it('does X correctly')`)
+   - `rtk grep` for the test name(s) — confirm the file/case exists
+   - **Skip check**: `rtk grep` the test for `\.skip(\|xit(\|@pytest\.mark\.skip\|@Ignore\|\bSkip\s*=` around the test definition. If matched, the test is disabled.
+   - **Execute**: run the test via `rtk test` against the current HEAD. Read the result. If the test runner is unavailable in this session, fall back to checking CI status BUT only if CI ran against the current HEAD SHA (verifiable via `git log -1 --format=%H` matching the CI commit); otherwise mark verification as UNVERIFIED.
+
+   Four branches (covers AP-11 territory):
+   - **Test missing** → atom's invariant is no longer protected; resolution is **suspect**. Demote to Partially Relevant. Continue to Phase 1. Do NOT fast-path.
+   - **Test skipped/disabled** → same effect as missing (provides no signal); treat as missing. Demote to Partially Relevant. **Additionally**: flag the skip itself as a separate finding in the eventual Phase 5 postmortem — disabled regression tests for atom-cited invariants are a project-level smell worth surfacing (this is the AP-11 trap from `references/anti-patterns.md` manifesting at the recall layer).
+   - **Test exists, enabled, currently FAILS** against current HEAD → there IS a regression at the same site, but the atom's prescribed fix may not address this variant. Demote to Partially Relevant; use atom as Phase 3 hypothesis seed.
+   - **Test exists, enabled, currently PASSES** against current HEAD → proceed to step 4.
+   - **Verification unavailable** (cannot run tests AND cannot confirm CI-of-current-HEAD) → mark classification as UNVERIFIED. Treat as Partially Relevant. Continue to Phase 1. Do NOT fast-path on faith.
+4. If the fix is **still present** AND step 3 returned "enabled+passes": **demote the classification to Partially Relevant**. This is NOT the same bug — the prior fix didn't cover this case (otherwise the test would catch it). The atom remains useful as a Phase 3 hypothesis seed. Continue to Phase 1.
+5. If the fix is **gone**: classification stays Clearly Relevant — that's likely the bug. Re-apply with appropriate adaptation, then continue to Phase 5 (still write the postmortem; this regression is itself worth recording).
+
+**Why step 3 matters**: without it, the fast-path propagates wrong fixes faster. Step 2 alone only checks "is the patch in code?" but a patch can be present yet **unprotected**:
+- The regression test could be deleted (caught by "Test missing")
+- The regression test could be `@skip`-ped or `xit`-ed (caught by "Test skipped/disabled" — closes the AP-11 trap)
+- The regression test could be present but currently failing (caught by "Test fails")
+- CI might be green against a different SHA than current HEAD (caught by "Verification unavailable")
+
+Step 3 closes all four loopholes. **The cost of these checks is bounded by the regression test's runtime.** For unit tests this is seconds-to-low-minutes; for integration/E2E tests (common in playsweeps-backend, sweeps-automated-test) it can be 2-15 minutes per run. Phase 0's "always cheap" framing applies only when the cited regression test is lightweight. For heavyweight tests, prefer CI-of-current-HEAD verification when available; otherwise accept the cost — the cost of NOT verifying is shipping a stale-fix to production.
 
 ---
 
@@ -163,12 +183,16 @@ The escape hatch exists so a missing memory layer doesn't paralyze the protocol 
 
 ## When Phase 0 Saves Time vs. Costs Time
 
-| Scenario | Phase 0 outcome | Net time saved |
+> **Post-A2 qualification**: the savings figures below assume fast-path is achievable (Step 3 returns favorable: fix-gone OR test-exists-enabled-failing-resolvable-by-verbatim-fix). When Step 3 demotes the classification to Partially Relevant (test missing, skipped, fails-with-adaptation-needed, or verification-unavailable), savings shrink because Phase 1-3 still run in lightweight form. Empirical calibration of post-A2 savings is deferred to Stage B pilot.
+
+| Scenario | Phase 0 outcome | Net time saved (pre-A2 estimate; post-A2 to be calibrated in pilot) |
 |---|---|---|
-| Bug previously solved by current agent | Clearly relevant hit | 25-60 minutes |
-| Bug previously solved by a teammate (atom harvested) | Clearly relevant hit | 30+ minutes + spec context |
+| Bug previously solved by current agent, fix gone + lightweight unit-test regression coverage exists+failing | Clearly relevant hit → fast-path with verification gate | 25-60 minutes minus ~30s-2min gate cost |
+| Bug previously solved by a teammate (atom harvested), same conditions | Clearly relevant hit → fast-path with verification gate | 30+ minutes + spec context, minus gate cost |
+| Same as above BUT regression test is heavyweight (integration/E2E) | Clearly relevant hit → fast-path with 2-15min gate cost | Net savings may be 5-45 minutes depending on test runtime |
+| Atom present, fix gone, but regression test missing/skipped/needs adaptation | Demoted to Partially Relevant → lightweight Phase 1-3 | 10-25 minutes (atom seeds hypothesis but no fast-path) |
 | Similar bug class, different surface | Partially relevant hit | 5-15 minutes (hypothesis seed) |
 | Truly novel bug | No hits | -5 seconds (the cost of the query itself) |
 | Repo has no harvested atoms | Empty result | -5 seconds + harvest decision |
 
-Worst case: 5 seconds spent. Best case: 60 minutes saved. The expected value is overwhelmingly positive — which is why Phase 0 is non-skippable.
+Worst case: 5 seconds spent. Best case for lightweight tests: ~60 minutes saved minus 2 minutes gate. Best case for heavyweight tests: meaningfully positive but bounded by test runtime. The expected value remains positive — which is why Phase 0 is non-skippable — but the magnitude of savings now depends on the test surface.
