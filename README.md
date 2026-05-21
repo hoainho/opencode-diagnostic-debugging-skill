@@ -59,6 +59,18 @@ Without one of these, the skill still runs Phase 0 → Phase 5 correctly for the
 
 The skill assumes these MCPs are registered: `mcp-console-hub`, `ohmyperf`, `omo-session-distiller`, `database-inspector`, `context7`, `grep_app`, `lsp_*`. When one is missing, the **MCP-unavailable fallback** lines in [`references/mcp-routing-table.md`](./skills/diagnostic-driven-debugging/references/mcp-routing-table.md) route to a generic substitute, and the postmortem's `evidence_quality` field captures the degradation. The skill gracefully handles partial MCP coverage — except for `omo-session-distiller`, where Phase 0 falls back to degraded substitutes (filesystem grep on prior postmortems, `session_search`, `git log -S`) and may skip outright if zero substitutes are reachable.
 
+## Effectiveness — pilot data summary
+
+The skill has been field-tested against 4 real bugs from Jira WIN Sprint 83 plus 1 second-similar-bug verification (n=5 diagnostic sessions). Mechanically-verified metrics (independent of wall-clock):
+
+- A5 manual harvest export pipeline: **5/5 success**
+- Phase 0 recall hit rate (plain-language symptom queries, no ticket IDs): **5/5 = 100%**
+- Score gap ≥20 in all 5 cases; bug-cluster grouping observed 3/5 times (related pilot atoms outrank off-topic noise — feature, not bug)
+
+Wall-clock speedup is **NOT measured**. The original proposal estimated 60-75% time reduction; Stage C2's gut-estimated per-pilot comparison neither confirms nor contradicts this — both ends of the comparison are speculation by the same author. See [tests/pilot-2026-05/100-metrics.md](./tests/pilot-2026-05/100-metrics.md) and [tests/pilot-2026-05/101-proposal-comparison.md](./tests/pilot-2026-05/101-proposal-comparison.md) for the honest current state.
+
+**Status (pending Stage C3 declaration)**: skill is mechanically verified for the recall pipeline. Speedup remains a hypothesis pending controlled measurement (parallel-track experiment with no-skill baseline timing — not yet done).
+
 ## How it composes with the opencode ecosystem
 
 | Other skill / tool | Relationship |
