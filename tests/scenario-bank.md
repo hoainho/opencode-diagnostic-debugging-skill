@@ -14,7 +14,7 @@
 
 | # | Bug archetype | MCP routing row | Protocol edge case exercised |
 |---|---|---|---|
-| 1 | Webhook signature mismatch only in prod | Row 2 (auth sub-case) | Misleading first hypothesis (HMAC key) → actual: clock drift |
+| 1 | Paysafe webhook 401 (HMAC mismatch) only in prod | Row 2 (auth sub-case) | Misleading first hypothesis (HMAC key drift) → actual: SDK breaking-change in timestamp serialization |
 | 2 | TypeError cascade after Auth0 silent refresh | Row 4 (error chains) | `get_error_chains` 2s window — first error ≠ where TypeError surfaces |
 | 3 | AVA flag rename broke transformer in prod only | Row 5 + Row 10 boundary | tsc passes locally; fails at Cloudflare Worker runtime — Row 5 by symptom, Row 10 by environment |
 | 4 | Prize calc returns NaN for grandfathered users | Row 6 (database-inspector) | Compound: NULL JOIN + missing migration backfill |
@@ -29,51 +29,59 @@ This matrix covers **every MCP routing row** plus the **5 critical protocol edge
 
 ---
 
-## Test 1 — Skrill webhook signature mismatch (Row 2, auth sub-case)
+## Test 1 — Paysafe webhook signature mismatch (Row 2, auth sub-case)
+
+> **Reframed from Skrill to Paysafe per review C5**: AGENTS.md confirms `playsweeps-paysafe-webhook` repo + `Sweeps.Paysafe` namespace exist on trunk. Skrill (WIN-6650) is active Sprint 80 dev — module may not exist yet. Paysafe is shipped + real.
 
 **Symptom report** (from on-call channel):
-> "Skrill refund webhooks are 401-ing in prod since yesterday 14:00 UTC. Worked in staging. No deploy in that window. The HMAC error count in App Insights spikes hourly. Customer-facing impact: ~30 refund acknowledgements are stuck."
+> "Paysafe refund webhooks are 401-ing in prod since yesterday 14:00 UTC. Worked in staging. No deploy in that window. The HMAC error count in App Insights spikes hourly. Customer-facing impact: ~30 refund acknowledgements are stuck."
 
 ### Misleading first hypothesis
-"HMAC secret was rotated by Skrill and Azure Key Vault hasn't synced." Naive LLM grabs the latest secret from KV, compares to the env var, finds them identical, and is stuck.
+"HMAC secret was rotated by Paysafe and Azure Key Vault hasn't synced." Naive LLM grabs the latest secret from KV, compares to the env var, finds them identical, and is stuck. (HMAC outputs have full diffusion — you cannot diagnose key-vs-payload by inspecting the signature bytes; this is exactly the trap the misleading hypothesis exploits.)
 
 ### Phase 0 — Recall
 ```pseudocode
-omo-session-distiller_recall(query="Skrill webhook 401 HMAC signature mismatch")
+omo-session-distiller_recall(query="paysafe webhook 401 HMAC signature mismatch")
 ```
-Expected: **no clear hit** (proceed to Phase 1). One partial hit on a 2025 Paysafe webhook bug — useful as Phase 3 seed (boundary similarity) but not the same provider.
+Expected: **no clear hit** (proceed to Phase 1). One partial hit on a 2025 Pragmatic Play webhook signature bug — useful as Phase 3 seed (same auth-class boundary) but different provider, different SDK.
 
 ### Phase 1 — Reproduce
 ```
-curl -X POST https://staging.playsweeps/webhooks/skrill/refund \
-  -H "X-Skrill-Signature: <captured from prod logs>" \
+curl -X POST https://staging.playsweeps/webhooks/paysafe/refund \
+  -H "X-Paysafe-Signature: <captured from prod logs>" \
+  -H "X-Paysafe-Timestamp: <captured>" \
   -d @prod-payload-redacted.json
-# → 401 reliably (this is the "fails often enough" deterministic case)
+# → 401 reliably (deterministic case)
 ```
 
 ### Phase 2 — Evidence (Row 2 auth sub-case)
-- `mcp-console-hub_query_network(statusRange="4xx", search="skrill")` → 47 hits in last 1h, all 401
-- `mcp-console-hub_get_network_detail(requestId=top)` → response body `{"error":"signature_mismatch","expected":"<46-char-hex>","got":"<46-char-hex>"}`. **Decode both base64 signatures — they differ by ONE character at position 3.** That's not a key mismatch; that's a payload encoding difference.
-- `mcp-console-hub_get_cookies` / `read_storage` — N/A (webhook, no browser context)
-- Backend logs (via `rtk grep "SkrillWebhook" logs/`) — show timestamp header `X-Skrill-Timestamp: 1747746000` is being passed through to the HMAC compute as `int` but the new SDK v2.4 expects `str`.
+Since the HMAC output is opaque (full diffusion — comparing signature bytes tells you nothing about *why* they differ), you cannot diagnose at the signature level. Have to look at the **inputs** to the HMAC compute:
+- `mcp-console-hub_query_network(statusRange="4xx", search="paysafe")` → 47 hits in last 1h, all 401
+- `mcp-console-hub_get_network_detail(requestId=top)` → response body `{"error":"signature_mismatch"}`. **No diagnostic detail from Paysafe** (they don't return their expected signature — security best practice).
+- Backend logs (via `rtk grep "PaysafeWebhook" logs/`) — show the local computed HMAC inputs: `payload_bytes || ":" || timestamp_string`. The `timestamp_string` field is `"1747746000"` from a recent log line; older successful logs show `"1747746000.0"` with a `.0` suffix.
+- `package.json` diff via `rtk git log -p package.json | head -50` reveals: `@paysafe/sdk` was bumped 2.3.4 → 2.4.0 in a `dependabot[bot]` PR merged yesterday afternoon at 13:50 UTC — minutes before the symptom started.
+- SDK v2.4.0 CHANGELOG (via `webfetch https://github.com/paysafegroup/paysafe-node-sdk/releases/tag/v2.4.0`): **"BREAKING: timestamp now serialized as integer (was previously float-with-.0-suffix for back-compat). HMAC consumers must align."**
+
+The HMAC inputs differ — same payload, but timestamp serialization changed.
 
 ### Phase 3 — Hypotheses
 
 | ID | Mechanism | Evidence | Falsification | Cost |
 |---|---|---|---|---|
-| A | HMAC key rotated, KV not synced | (refuted at intake — keys identical) | Read KV vs env var | 30s |
-| B | Timestamp serialization mismatch — SDK v2.4 expects string, code passes int | App Insights logs show `int(timestamp)` in payload; SDK changelog mentions strict typing in v2.4 | Patch one webhook handler to coerce `str()` before HMAC; replay one failing webhook | 5min |
-| C | Clock drift between Azure Function host and Skrill | Webhook timestamps are within 2s of receipt — confirmed via header inspection | Drop hypothesis based on inspection | 30s |
+| A | HMAC key rotated, KV not synced | KV value at v3 (current), env var at v3 (current) — identical | Read KV vs env var | 30s |
+| B | SDK v2.4 changed timestamp serialization from float-with-.0 to int; our handler still computes HMAC over the float-form | CHANGELOG entry quoted above; log diff shows `.0` suffix disappeared at deploy boundary | Patch handler to use the SDK's new `formatTimestamp()` helper that produces the canonical form; replay one failed webhook | 5min |
+| C | Clock drift between Azure Function host and Paysafe | Webhook timestamps within 2s of receipt — confirmed via header inspection | Drop hypothesis based on inspection | 30s |
 
-**Triage**: A and C are cheap-falsification (< 1 min combined). B is the most likely but most expensive. Run A → C → B per cheapest-first rule. A and C falsify in 1.5 min combined; B confirms.
+**Triage**: A and C are cheap-falsification (< 1 min combined). B is most likely but most expensive. Run A → C → B per cheapest-first rule. A and C falsify in 1.5 min combined; B confirms.
 
 ### Phase 4 — Fix
-Single-line change in `playsweeps-paysafe-webhook` analog handler in `Sweeps.Skrill/WebhookSignatureValidator.cs`: `timestamp.ToString(CultureInfo.InvariantCulture)` before HMAC. Adds `decimal_places=0` to ensure no `.0` suffix. Regression test: feed a payload with int timestamp, assert HMAC matches Skrill's reference output.
+In `playsweeps-paysafe-webhook/src/SignatureValidator.cs` (or equivalent — the actual module per the repo): replace the local timestamp serialization with the SDK's `paysafe.formatTimestamp()` helper that emits the canonical form. Pin `@paysafe/sdk` to `~2.4.0` in package.json (no future autobumps without manual review). Regression test: feed a fixture payload + timestamp through the validator, assert HMAC matches the SDK's reference output.
 
 ### Phase 5 — Postmortem (excerpt)
-- `bug_class: library-quirk` (SDK upgrade silent breaking change)
+- `bug_class: library-quirk` (SDK upgrade silent breaking change in serialization)
 - `severity: sev1` (revenue-impacting webhook failures)
-- Prevention: pin Skrill SDK in pnpm-lock; add a CI smoke test that posts a known Skrill payload to staging.
+- Phase 0 Recall Result: `no-novel`. Partial hit on Pragmatic Play signature atom but provider-specific.
+- Prevention: dependabot should NOT auto-merge SDK upgrades on webhook-handler repos (label `auth-critical`); add a CI smoke test that posts a fixture payload + asserts the validator's computed HMAC matches a recorded canonical value (would have failed CI on the SDK bump).
 
 ### Protocol resilience check
 ✅ Misleading hypothesis A falsified by evidence (KV inspection), not by author cheating. ✅ Phase 3 cheapest-first triage caught the wrong-most-likely guess. ✅ Phase 5 postmortem becomes an atom future-self will hit on the next SDK upgrade bug.
@@ -246,21 +254,31 @@ SELECT base * ptm.Multiplier FROM ... JOIN PrizeTierMultiplier ptm ON ptm.Tier =
 
 ### Phase 3 — Hypotheses
 
+The Phase 2 evidence (NULL Tier on the 12 affected users + INNER JOIN) is one cause. But scanning the v1.10 release notes for the tournaments module also reveals: this release shipped a **new precision change** — prize multipliers moved from `float` → `decimal(18,4)` in `PrizeTierMultiplier`. That's a second potential contributor that shares evidence with NULL-handling.
+
 | ID | Mechanism | Evidence | Falsification | Cost |
 |---|---|---|---|---|
-| A | NULL Tier on grandfathered users + INNER JOIN drops the row | DB query confirms NULL for affected users | Already done in Phase 2 | 0s |
+| A | NULL Tier on grandfathered users + INNER JOIN drops the row → C# pipeline returns `NaN` | DB query confirms NULL for affected users (Phase 2) | Already done in Phase 2 | 0s |
 | B | New tier table missing rows | `SELECT * FROM PrizeTierMultiplier` — has 3 rows ✓ | Already done | 0s |
-| C | Migration script ran but missed rows | `SELECT COUNT(*) FROM Users WHERE Tier IS NULL` → 12 rows | DB query | 30s |
+| C | The `float`→`decimal` migration in `PrizeTierMultiplier` (v1.10) didn't update the C# DTO; the column reader sees decimal but binds into `double Multiplier` causing a silent `null` cast on certain values (`decimal(18,4)` values that have > 15 significant bits) | Inspect `PrizeTierMultiplierDto.cs` — type is still `double`; SqlMapper logs show a binding warning that was previously informational | Run prize calc on a NEW user (post-migration) with a multiplier value that has 16 significant bits → returns NaN even though Tier is correctly populated | 10min |
 
-**Triage**: A confirmed at evidence collection; C confirms the *scope* of A. B falsified.
+**Two independent confirmed causes**:
+- A: NULL Tier + INNER JOIN drops the row (affects 12 grandfathered users)
+- C: decimal/double type mismatch (affects ALL users when multiplier hits >15 sig-bits; only one tier currently exhibits this — `vip` with multiplier 1.5 has exactly 0 problematic bits, but a future `whale` change to 2.55 would trigger it for everyone)
 
-### Compound check
-A (NULL handling in JOIN) + C (missing migration backfill) are the same root cause manifest at two layers — fix one without the other and either the join still NaN's or the backfill is incomplete. T9 DEFECT-4 gate: ruled out other plausible hypotheses → C is the structural fix, A's defensive code is the runtime safeguard. **Both required.**
+### Compound check (T9 DEFECT-4 — genuine independent causes sharing evidence)
+A and C both produce the same surface NaN. A affects 12 users now. C is latent — currently produces NaN only on grandfathered users (because their Tier is NULL → multiplier read is undefined → looks like the decimal-cast bug) but will explode the moment any tier multiplier exceeds 15 sig-bits.
+
+Fix A only → C remains a latent ticking bomb that triggers on the next prize-tier adjustment.
+Fix C only → the 12 grandfathered users still see NaN because they never have a Tier row to bind to.
+
+**Both required.** This is the genuine compound case T9 DEFECT-4 gates against.
 
 ### Phase 4 — Fix
-1. Migration `2026.5.21-backfill-user-tier.sql`: `UPDATE Users SET Tier = 'standard' WHERE Tier IS NULL`
-2. `Sweeps.Database.SqlServer.PrizeCalculator.cs`: change `JOIN PrizeTierMultiplier` to `LEFT JOIN ... ISNULL(ptm.Multiplier, 1.0)` as a defensive fallback (NOT a primary fix; with the backfill it's belt-and-suspenders)
-3. Regression test: a SQL test inserts a NULL-tier user and asserts prize calc returns non-NaN
+1. Migration `2026.5.21-backfill-user-tier.sql`: `UPDATE Users SET Tier = 'standard' WHERE Tier IS NULL` (fixes A)
+2. `playsweeps-backend/Sweeps.Database.SqlServer/Dtos/PrizeTierMultiplierDto.cs`: change `public double Multiplier { get; set; }` → `public decimal Multiplier { get; set; }`; update `PrizeCalculator.cs` to cast at the final result boundary, not at row-bind (fixes C)
+3. Regression test (covers both): inserts a NULL-Tier user (must not NaN) AND inserts a tier with multiplier 2.55 (must compute exactly, not NaN)
+4. Add `NOT NULL` constraint on `Users.Tier` *after* the backfill (prevents A's recurrence)
 
 ### Phase 5 — Postmortem
 - `bug_class: data` (primary), severity sev2
@@ -268,7 +286,7 @@ A (NULL handling in JOIN) + C (missing migration backfill) are the same root cau
 - Prevention: `UserTier NOT NULL` constraint added (now safe post-backfill); CI check that all migrations with `DEFAULT` also include a backfill UPDATE for existing rows.
 
 ### Protocol resilience check
-✅ Database-inspector skill correctly invoked as workflow guide (T3 review fix). ✅ Partial recall hit became Phase 3 seed without misleading the diagnosis (Phase 0 Step 4 tentative→demoted by Step 5 path). ✅ Compound check forced backfill + defensive fix together.
+✅ Database-inspector skill correctly invoked as workflow guide (T3 review fix). ✅ Partial recall hit became Phase 3 seed without misleading the diagnosis (Phase 0 Step 4 tentative→demoted by Step 5 path). ✅ T9 DEFECT-4 compound gate caught a **genuinely independent latent cause** (the decimal/double type mismatch in Hypothesis C) — fixing only A (NULL Tier) would have left a ticking bomb that detonates the next time any tier multiplier exceeds 15 significant bits. This is the exact failure mode the gate was designed to prevent.
 
 ---
 
@@ -421,36 +439,40 @@ Deterministic.
 
 ### Phase 2 — Evidence (Row 9 build + Row 12 bisect)
 ```pseudocode
-rtk err pnpm wrangler deploy _Promotions_HighRoller --dry-run --verbose
-# Output reveals: "Reusing cached entry from .wrangler/tmp/__deploy/2026.4.30.bundle.js"
+rtk err pnpm wrangler deploy _Promotions_HighRoller --verbose
+# Output (with --verbose) reveals the actual upload size: "Upload: 18 KB"
+# But the bundle on disk is 1.2 MB. Mismatch.
 
-ls -la .wrangler/tmp/__deploy/
-# → bundles for 5 of the 6 workers are dated today; _Promotions_HighRoller's bundle is dated 2026-04-30
+ls -la dist/_Promotions_HighRoller/
+# → 1.2 MB bundle dated today (recent build)
 
-rtk git log --oneline --all -- .wrangler/
-# → .wrangler/ is in .gitignore (expected); but git log -- wrangler.toml shows:
-# 3 weeks ago: "chore: clean up wrangler config" (commit a91b2c4)
+cat wrangler.toml | grep -A 5 "_Promotions_HighRoller"
+# Reveals: this worker uses a [env.production] block that overrides `main = "./dist/index.js"`
+# to `main = "./dist/_Promotions_HighRoller/legacy.js"` — a stale entry pointing to a small
+# legacy stub left over from before the v1.10 module split.
 
+rtk git log --oneline -- wrangler.toml | head -10
+# 3 weeks ago: commit a91b2c4 "chore: split _Promotions into HighRoller and Casual"
 git show a91b2c4 -- wrangler.toml
-# Diff shows: the entry block for _Promotions_HighRoller had `[[unsafe.bindings]]` indentation
-# changed from 2-space to 4-space. Wrangler 3.x silently treats this as the start of a new
-# (anonymous) worker entry, which is named the same on next deploy but built from cache.
+# Diff: created the new [env.production] block for _Promotions_HighRoller pointing to legacy.js
+# as a temporary scaffold; the actual entry was supposed to be updated to ./dist/index.js
+# after the module split landed. The follow-up commit was never made.
 ```
 
 ### Phase 3 — Hypotheses
 
 | ID | Mechanism | Evidence | Falsification | Cost |
 |---|---|---|---|---|
-| A | TOML indentation drift in wrangler.toml causes Wrangler to silently reuse a stale bundle | git diff at a91b2c4 + `.wrangler/tmp/__deploy/` timestamps | Reset indentation, re-deploy, verify version endpoint reflects the canary | 5min |
-| B | Cloudflare CDN cache stale | curl with cache-busting header still returns old | 30s |
-| C | Wrangler authentication scoped wrong (different worker namespace) | `wrangler whoami` + worker list | 1min |
+| A | `wrangler.toml` `[env.production]` block for this worker points to a stale `legacy.js` entry; the actual new entry never replaced it | `--verbose` upload size (18 KB) vs disk bundle (1.2 MB); grep of wrangler.toml shows the legacy path; git log shows a91b2c4 created the block as a scaffold | Change `main = "./dist/_Promotions_HighRoller/legacy.js"` → `main = "./dist/index.js"`, redeploy, verify upload size and `/version` endpoint | 5min |
+| B | Cloudflare CDN cache stale | curl with cache-bust header still returns old | 30s |
+| C | Wrangler auth scoped to wrong worker namespace | `wrangler whoami` + worker list | 1min |
 
 **Triage**: B (30s) → C (1m) → A (5m). B and C falsify; A confirms.
 
 ### Phase 4 — Fix
-- `wrangler.toml`: restore 2-space indentation for `[[unsafe.bindings]]` block
-- `transformers/scripts/preflight.sh`: add a `tomlcheck` step before `wrangler deploy` that verifies indentation invariants
-- Add a CI smoke that curls each deployed worker's `/version` endpoint post-deploy and fails if any worker's reported version is older than the build SHA
+- `transformers/wrangler.toml`: update the `[env.production]` block for `_Promotions_HighRoller` — change `main = "./dist/_Promotions_HighRoller/legacy.js"` to `main = "./dist/index.js"` (matches the other 5 workers' pattern)
+- Delete `transformers/_Promotions_HighRoller/legacy.js` (no longer referenced)
+- Add a CI smoke that curls each deployed worker's `/version` endpoint post-deploy and fails if any worker's reported version is older than the deploying commit SHA — would have caught this regression at deploy time
 
 ### Phase 5 — Postmortem
 - `bug_class: build` + `env-config` cross-tag
@@ -552,8 +574,8 @@ rtk git log --oneline -- playsweeps-backend/Sweeps.Awards/DailyBonusCalculator.c
 
 **Per T9 DEFECT-1 Step 5 rule**: "If the fix is **gone**: classification stays Clearly Relevant — that's likely the bug. Re-apply with appropriate adaptation, then continue to Phase 5."
 
-### Phase 1 — (Skipped via fast-path; reproduce by re-applying the fix branch and verifying)
-Phase 2-3 skipped — the recall hit gave the mechanism + fix. Jump to Phase 4.
+### Phase 1-3 — Skipped (fast-path)
+Step 5's verification (prior fix gone) **is** the diagnosis: the bug is the regression of a previously-fixed issue at a known commit. No new investigation needed — the atom's resolution is the fix, with adaptation. Phase 4 will verify by re-applying the guard and re-running the original regression test from atom-2026-02-15.
 
 ### Phase 4 — Fix
 1. Revert the relevant lines of `f1a2b3c4` that removed the guard
@@ -604,15 +626,16 @@ Reproduces enough to collect Phase 2 evidence (per T9 DEFECT-2 wording — "fail
 - `lsp_goto_definition(LeaderboardTable.tsx)` — uses `items.sort((a,b) => b.score - a.score)` defensively.
 - `mcp-console-hub_get_redux_key("tournament.leaderboard.items")` again on a CORRECT render: rows look identical to the wrong-render data. Same shape.
 - React DevTools — confirms component renders only once per data update.
+- **Full row ID dump** (added because Phase 3 hypotheses about sort/order require visibility into the actual identifiers, not just scores): a quick `JSON.stringify(items.map(r => r.id))` via `chrome-devtools_evaluate_script` captures all IDs across both wrong-render and correct-render samples. The list looks alphanumeric and varied — no obvious pattern at a glance, but the full list is now in the evidence bundle for downstream analysis.
 
 ### Phase 3 — Hypotheses (ALL falsified — this is the design)
 
 | ID | Mechanism | Falsification | Result |
 |---|---|---|---|
-| A | Comparator instability — sort isn't stable for equal scores | TypeScript Array.prototype.sort IS stable since 2019; equal-score rows in evidence have distinct scores | FALSIFIED |
-| B | React render batching swaps rendered children | Render-tree inspection shows children mounted in correct order | FALSIFIED |
-| C | Server-side pagination returns rows in different orders per page-load (race) | Server response always has correct order in Phase 2 evidence | FALSIFIED |
-| D | Timezone of `lastUpdate` field used as tiebreaker | Code reads only `score`, never `lastUpdate` | FALSIFIED |
+| A | Comparator instability — sort isn't stable for equal scores | **Empirical**: capture 50 wrong-renders and 50 correct-renders, check whether wrong-renders have any equal-score adjacent pairs. **None do** — all swapped pairs have score deltas of 50+ points. Sort stability is irrelevant. | FALSIFIED |
+| B | React render batching swaps rendered children | Render-tree inspection (React DevTools "Why Did This Render") shows children mounted in correct order — the visible swap is *post-mount* | FALSIFIED |
+| C | Server-side pagination returns rows in different orders per page-load (race) | Server response in evidence has correct order across all 50 sampled wrong-renders | FALSIFIED |
+| D | Timezone of `lastUpdate` field used as tiebreaker | `lsp_find_references` on the sort callback — reads only `score`, never `lastUpdate` | FALSIFIED |
 
 **All four hypotheses falsified.** Per SKILL.md Phase 3: "All hypotheses falsified → consult oracle (template)."
 
@@ -630,9 +653,10 @@ task(
 ```
 
 ### Hypothetical Oracle response
+Oracle reads the full evidence bundle — crucially including the row-ID dump that Phase 2 captured. With that data in hand, it identifies a pattern the controller missed:
 ```
-HYPOTHESIS A (NEW): React `key` prop collision causes reconciliation to swap pair-adjacent rows when two rows have keys that hash-collide
-  Evidence: Player IDs in evidence have an unusual length distribution; 2 pairs of adjacent rows have IDs differing only in case (`P00043A` vs `p00043a`). React keys are case-sensitive but if the LeaderboardTable.tsx uses a `key` derived from `id.toLowerCase()` for legacy compat, collision drops them into the same reconciliation slot.
+HYPOTHESIS A (NEW): React `key` prop collision causes reconciliation to swap pair-adjacent rows when two rows have keys that fold to the same value
+  Evidence (from Phase 2 row-ID dump that the controller collected but didn't analyze for case-folding): the swapped pairs at positions 3-4 and 7-8 in wrong-renders correspond to row IDs `P00043A` / `p00043a` and `M00091X` / `m00091x` respectively. The controller eyeballed the IDs as "alphanumeric and varied" but missed that two pairs differ only in case. React keys are case-sensitive by spec, so the collision can only happen if the component is folding case somewhere.
   Falsification: lsp_find_references on the LeaderboardRow component's `key=` prop. If it's `key={row.id}` → falsified. If it's `key={row.id.toLowerCase()}` or `key={hash(row.id)}` → confirmed.
   Cost: 1 minute
 
