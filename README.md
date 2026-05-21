@@ -69,7 +69,7 @@ The skill has been field-tested against 4 real bugs from Jira WIN Sprint 83 plus
 
 Wall-clock speedup is **NOT measured**. The original proposal estimated 60-75% time reduction; Stage C2's gut-estimated per-pilot comparison neither confirms nor contradicts this — both ends of the comparison are speculation by the same author. See [tests/pilot-2026-05/100-metrics.md](./tests/pilot-2026-05/100-metrics.md) and [tests/pilot-2026-05/101-proposal-comparison.md](./tests/pilot-2026-05/101-proposal-comparison.md) for the honest current state.
 
-**Status (pending Stage C3 declaration)**: skill is mechanically verified for the recall pipeline. Speedup remains a hypothesis pending controlled measurement (parallel-track experiment with no-skill baseline timing — not yet done).
+**Status (declared 2026-05-21 in C3): PARTIAL.** Skill is mechanically verified for the recall pipeline (5/5 atoms harvested + 5/5 Phase 0 hit rate + score gaps ≥20). Wall-clock speedup remains a hypothesis pending controlled measurement; the original proposal's 60-75% claim is un-contradicted but un-confirmed. See [tests/pilot-2026-05/102-status-declaration.md](./tests/pilot-2026-05/102-status-declaration.md) for the full decision-rule application and the PARTIAL → PRODUCTION-READY upgrade paths.
 
 ## How it composes with the opencode ecosystem
 
