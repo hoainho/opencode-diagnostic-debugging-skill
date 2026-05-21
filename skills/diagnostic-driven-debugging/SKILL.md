@@ -70,7 +70,7 @@ This skill exists because LLM agents debug poorly by default. Without structure,
 ┌─────────────────────────────────────────────────────────────┐
 │  PHASE 3 — HYPOTHESIS  Ranked + falsifiable                 │
 │                                                             │
-│  • State ≥ 2 hypotheses, each with:                          │
+│  • State ≥ 2 hypotheses, each with:                         │
 │      mechanism (HOW the bug arises)                         │
 │      supporting evidence (file:line)                        │
 │      falsification test (what would prove this wrong?)      │
@@ -84,6 +84,20 @@ This skill exists because LLM agents debug poorly by default. Without structure,
 │    sharing evidence with the confirmed one. COMPOUND root   │
 │    causes exist; fixing only one of two is AP-8 with extra  │
 │    steps. See anti-patterns AP-8.                           │
+│  • CAP (PROVISIONAL — to recalibrate after Stage B pilot):  │
+│    spend at most 3 hypotheses' worth of rule-out cost       │
+│    (1 hypothesis-cost = its falsification test cost). If    │
+│    you can't disambiguate within that budget, ship the      │
+│    highest-confidence single fix AND flag residual          │
+│    ambiguity in Phase 5 'Open Risks' subsection. Cap        │
+│    prevents analysis paralysis from forever-rule-out loops. │
+│  • CAP vs AP-8 reconciliation (load-bearing distinction):   │
+│    cap-shipped fixes are NOT AP-8 partial-fix because       │
+│    compoundness is SUSPECTED-BUT-UNCONFIRMED after budget   │
+│    exhaustion. AP-8 still forbids shipping a partial fix    │
+│    when compoundness is CONFIRMED (both causes positively   │
+│    identified). The Open Risks flag is the audit trail      │
+│    that distinguishes 'cap-shipped' from 'AP-8 trap'.       │
 │                                                             │
 │  Reference: prompts/oracle-root-cause.md                    │
 └──────────────────────────────┬──────────────────────────────┘
