@@ -71,13 +71,17 @@ Adapted from obra/superpowers' Red Flag + Excuse→Reality format, with opencode
 
 ---
 
-### AP-7 — Type suppression to "fix" the bug
+### AP-7 — Diagnostic silencing ("fix" the message, not the bug)
 
-**Behavior**: `as any`, `@ts-ignore`, `@ts-expect-error`, `# type: ignore`, `eslint-disable` — applied to the error itself rather than the cause.
+**Behavior**: Applied to the *symptom diagnostic* rather than its cause. Includes:
+- Type suppression: `as any`, `@ts-ignore`, `@ts-expect-error`, `# type: ignore`
+- Lint suppression: `eslint-disable`, `# noqa`, `@SuppressWarnings`
+- Silent error swallowing: empty `catch (e) {}`, `Promise.catch(() => {})`, `except: pass`, `_ = await foo();` to discard rejections
+- Console silencing: `console.error = () => {}`, log-level downgrades during debug
 
-**Why it's blocked**: The type / lint error is often the bug's voice. Silencing it ships the bug to production wearing a green CI badge.
+**Why it's blocked**: The type/lint/error message is often the bug's voice. Silencing it ships the bug to production wearing a green CI badge. Empty catches are particularly insidious — they convert a loud failure into a silent state corruption that surfaces three layers downstream as a mystery.
 
-**Correct alternative**: Treat the diagnostic as evidence in Phase 2. The type error tells you something about types or assumptions. Fix the assumption.
+**Correct alternative**: Treat the diagnostic as evidence in Phase 2. The type error tells you something about types or assumptions. The exception you're tempted to swallow names the boundary condition you haven't handled. Fix the assumption / handle the boundary properly.
 
 ---
 
@@ -99,6 +103,10 @@ Adapted from obra/superpowers' Red Flag + Excuse→Reality format, with opencode
 
 **Correct alternative**: Phase 1 produces a reproduction. Phase 2 collects evidence from that reproduction (MCP queries, state dumps, network traces). Reason about the **observed**, not the imagined.
 
+**Sub-case — git archaeology**: A close cousin is "let me check `git blame` / `git log -S` instead of running the repro." Reading history is evidence about *past* code, not *current* runtime. Useful in Phase 3 to enrich a hypothesis (the commit that introduced the regression), useless as a substitute for the live observation that Phase 2 demands. Always run the repro first.
+
+**See also**: AP-1 (try-a-fix-and-see) — the *action-first* variant of the same evidence-bypass. AP-9 fails by being too static; AP-1 fails by being too kinetic. Both skip Phase 2.
+
 ---
 
 ### AP-10 — Trust your previous fix
@@ -108,6 +116,21 @@ Adapted from obra/superpowers' Red Flag + Excuse→Reality format, with opencode
 **Why it's blocked**: Bugs *do* come back — usually because the original fix was AP-8 (symptom only), or because a refactor stripped the defensive code. Trusting the prior fix is how regressions survive.
 
 **Correct alternative**: Phase 0 recall will show your prior atom. Read it. **Verify the prior fix is still in the code** (`grep` / `lsp_find_references`). If it's gone, that's the bug. If it's there, the bug class is different — proceed to Phase 1.
+
+---
+
+### AP-11 — Disable the failing test
+
+**Behavior**: `it.skip()`, `xit()`, `@pytest.mark.skip`, `@Ignore`, `[Fact(Skip="flaky")]`, or commenting out the assertion to make CI green. Often justified as "I'll come back to it" or "it's flaky anyway."
+
+**Why it's blocked**: A failing test is a *running reproduction* — exactly the Phase 1 artifact this skill spends effort to construct. Skipping it discards the most expensive piece of debugging evidence the project has, and the "come back to it" almost never happens. Disabled tests accumulate into a pool of unmonitored debt that hides real regressions.
+
+**Correct alternative**:
+- If the test fails reliably → it found the bug; the bug is now your Phase 1 artifact. Investigate immediately.
+- If the test is flaky (passes/fails non-deterministically) → that flake IS the bug. Route to Row 8 of the MCP routing table (race/timing/intermittent). Do NOT skip; treat reproducing the flake reliably as a P1 task.
+- If the test is testing the wrong behavior and you intend to remove it → delete it in a separate, explicit commit that explains why the behavior is no longer required. NEVER silently skip.
+
+The only legitimate uses of `skip` are: (a) the feature is intentionally not yet implemented (TDD red), tagged with the task that will implement it; (b) a known environment-specific skip (e.g. "skip on Windows"), explicitly documented with the platform reason. Neither is debugging.
 
 ---
 
@@ -137,6 +160,8 @@ Tick any that apply — each one means STOP and reassess:
 - [ ] The reproduction from Phase 1 wasn't re-run after the fix
 - [ ] I haven't written the postmortem
 - [ ] I touched files outside what the root cause requires
-- [ ] I'm "tired and want to be done" (the most reliable rationalization detector)
+- [ ] The session has run > 30 tool calls without a confirmed Phase 3 hypothesis (observable proxy for "wandering in shotgun mode")
+- [ ] I've revised the hypothesis ≥ 3 times without collecting new Phase 2 evidence in between (observable proxy for "fitting hypothesis to bias rather than data")
+- [ ] I disabled, skipped, or weakened a test as part of the fix (AP-11)
 
 If any box ticks → loop back to the appropriate phase. The fix is not done until the checklist clears.
