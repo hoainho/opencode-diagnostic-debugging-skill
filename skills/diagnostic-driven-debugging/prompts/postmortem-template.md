@@ -23,7 +23,9 @@
 date: YYYY-MM-DD
 slug: <kebab-case-bug-name>
 repo: <repo-slug or "cross-repo">
-bug_class: <one of: state-desync | network | perf | runtime-exception | type | data | library-quirk | race | build | env-config | regression | other>
+bug_class: <one of: state-desync | network | perf | runtime-exception | type | data | library-quirk | race | concurrency | build | env-config | regression | security | other>
+severity: <sev1 | sev2 | sev3>  # sev1 = prod outage / data loss / security breach; sev2 = degraded UX or partial outage; sev3 = minor / cosmetic
+area_tag: <optional, free-form, e.g. "tournaments/leaderboard" or "auth/refresh-token">
 recall_hit: <yes-fast-path | yes-partial | no-novel | distiller-empty>
 fix_commit: <sha or "uncommitted">
 time_spent_minutes: <integer>
@@ -59,7 +61,8 @@ time_spent_minutes: <integer>
 <If recall_hit=no-novel: "No relevant atoms in distiller. This postmortem is the first record of this bug class.">
 <If recall_hit=distiller-empty: "Distiller had no atoms for this repo. Consider harvesting.">
 
-## Oracle Consult (if applicable)
+## Oracle Consult
+<!-- If you invoked the oracle in Phase 3, fill this section. Otherwise write "—" as the section body. -->
 <If you invoked the oracle in Phase 3:>
 <- Atom/session ID of the consult>
 <- Which Oracle hypothesis was the breakthrough (A/B/C from triage order)>
@@ -82,6 +85,8 @@ date: 2026-03-15
 slug: tournament-leaderboard-empty-after-pod-switch
 repo: playsweeps-web
 bug_class: race
+severity: sev2
+area_tag: tournaments/leaderboard
 recall_hit: no-novel
 fix_commit: a1b2c3d
 time_spent_minutes: 42
@@ -116,7 +121,7 @@ Switching from Pod-1 to Pod-2 while the leaderboard is still loading leaves the 
 ## Phase 0 Recall Result
 No relevant atoms in distiller. This postmortem is the first record of this bug class.
 
-## Oracle Consult (if applicable)
+## Oracle Consult
 —
 
 ## Prevention Notes
@@ -144,7 +149,7 @@ No relevant atoms in distiller. This postmortem is the first record of this bug 
 ### PP-C — "Defensive code" as the fix
 **Behavior**: Documenting a fix that adds `?? []` / `try/catch` / null guards around the symptom site without addressing the structural cause.
 **Why it's blocked**: This is AP-8 (fix symptom not root cause) preserved in the historical record. The bug will recur and the postmortem will mislead future-you into thinking it was solved.
-**Correct alternative**: If you find yourself writing "added defensive `?? []`" as the fix, loop back to Phase 3 — the root cause was not found. Don't ship the postmortem with a symptom-fix.
+**Correct alternative**: If your Fix section reads as a *guard*, *coerce*, *catch-and-default*, or "added retry" without explaining the underlying invariant that was violated, you have not found root cause. Loop back to Phase 3 — re-state hypotheses, the previous ones were incomplete. Don't ship the postmortem with a symptom-fix.
 
 ### PP-D — Citing tool names without quoting evidence
 **Behavior**: "Evidence Sources Used: `mcp-console-hub_get_redux_state`, `lsp_diagnostics`."
@@ -155,6 +160,24 @@ No relevant atoms in distiller. This postmortem is the first record of this bug 
 **Behavior**: Writing 200 lines, adding "lessons learned" essays, philosophizing about the codebase, suggesting architectural overhauls.
 **Why it's blocked**: Postmortems that take >5 minutes to write get skipped next time. Postmortems that take 30 minutes to read get skipped on recall. Brevity is the entire mechanism.
 **Correct alternative**: Stay within the 25-line target. Prevention Notes is for 1-3 bullets, not essays. If you have a refactor idea, file it as a separate task.
+
+---
+
+## Frontmatter Field Reference
+
+| Field | Required | Type | Purpose |
+|---|---|---|---|
+| `date` | yes | `YYYY-MM-DD` | The day the bug was FIXED (not discovered) |
+| `slug` | yes | kebab-case string ≤ 6 words | Filename + atom search keyword |
+| `repo` | yes | string (slug or `"cross-repo"`) | Scope for `recall(repo=...)` filter |
+| `bug_class` | yes | enum (see template) | Coarse classifier for routing-table reverse lookup |
+| `severity` | yes | enum `sev1` / `sev2` / `sev3` | Prioritization signal for recall: sev1 atoms surface first |
+| `area_tag` | no | string (`module/feature` form) | Narrower than bug_class — used to disambiguate when class is too coarse |
+| `recall_hit` | yes | enum (see template) | Tracks the recall loop's hit rate over time |
+| `fix_commit` | yes | SHA or `"uncommitted"` | Audit trail back to the code change |
+| `time_spent_minutes` | yes | integer | Cost data — feeds the "is this skill saving time?" metric |
+
+The harvester reads these fields verbatim. Do not rename, do not skip required, do not add fields outside this set (extensions break the index).
 
 ---
 
