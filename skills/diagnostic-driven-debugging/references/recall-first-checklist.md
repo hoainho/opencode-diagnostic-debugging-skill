@@ -37,25 +37,27 @@ The query is a natural-language description of the bug. Aim for **3-7 keywords**
 
 ### Step 2 — Choose the scope
 
-`omo-session-distiller_recall` accepts an optional `repo` parameter:
+`omo-session-distiller_recall` accepts an optional `repo` parameter. **Default rule: start broad, narrow only on re-query.**
 
-- **Single-repo bug** (clearly in playsweeps-web, or clearly in playsweeps-backend) → `repo="<repo-slug>"`
-- **Cross-cutting / unknown scope** → omit `repo` to search all atoms
-- **First Phase 0 query**: start broad (no `repo` filter), then narrow if too many hits
+- **First Phase 0 query**: omit `repo` to search all atoms (broad sweep — you may discover the same bug in a sibling repo)
+- **If too many irrelevant hits** OR **the first query returned 0 hits and you're confident which repo it's in**: re-query with `repo="<repo-slug>"` (narrow sweep)
+- **Cross-cutting bugs that touch multiple repos**: stay broad; never filter
 
 ### Step 3 — Invoke
 
-```python
+This is an MCP tool invocation (not Python). The agent passes structured arguments to the `omo-session-distiller_recall` tool. Shown below in kwarg-style pseudocode:
+
+```pseudocode
 omo-session-distiller_recall(
     query="tournament leaderboard renders empty after pod switch",
-    repo="playsweeps-web",  # omit for cross-repo
-    limit=5                  # 5 is usually enough; 3 if you trust the query
+    # repo: omit on first query (broad sweep). Add for re-query if needed.
+    limit=5   # 5 is usually enough; 3 if you trust the query
 )
 ```
 
 ### Step 4 — Interpret the response
 
-The tool returns ranked atom hits, each with a Problem statement and a Resolution. There is **no numeric score field** — you assess relevance from the Problem text yourself. Use this rubric:
+The tool returns ranked atom hits, each with a Problem statement and a Resolution. There is **no numeric score field** — ranking is positional only. **The first hit is not guaranteed to be the best match**; always read the Problem text of the top 2-3 hits before deciding. Use this rubric:
 
 | Relevance | Indicator | Action |
 |---|---|---|
@@ -68,7 +70,7 @@ The tool returns ranked atom hits, each with a Problem statement and a Resolutio
 If you got a Clearly Relevant hit and intend to fast-path:
 
 1. **`expand` the atom** to get the full archive context if Resolution is too brief:
-   ```python
+   ```pseudocode
    omo-session-distiller_expand(atom_id="<atom-id-or-slug>", around=2)
    ```
 2. **Verify the previously-applied fix is still in the code**. Bug regressions happen — the prior fix may have been refactored away. Use `lsp_find_references` or `rtk grep` on the key symbols from the Resolution.
@@ -83,11 +85,11 @@ If you got a Clearly Relevant hit and intend to fast-path:
 
 **Symptom**: "Pod-2 tournament tab shows empty leaderboard after I switch from Pod-1."
 
-**Phase 0**:
-```python
+**Phase 0** (broad sweep first per Step 2 rule):
+```pseudocode
 omo-session-distiller_recall(
-    query="tournament leaderboard empty after pod switch",
-    repo="playsweeps-web"
+    query="tournament leaderboard empty after pod switch"
+    # no repo filter on first query
 )
 ```
 
@@ -102,8 +104,9 @@ omo-session-distiller_recall(
 
 **Symptom**: "Tournament prize calculation off-by-one for high-roller users."
 
-**Phase 0**:
-```python
+**Phase 0** (broad sweep first; this example narrowed because the broad query returned 30+ unrelated hits):
+```pseudocode
+# First (broad) call returned too many irrelevant hits → re-query narrowed:
 omo-session-distiller_recall(
     query="tournament prize calculation off-by-one",
     repo="playsweeps-backend"
@@ -122,7 +125,7 @@ omo-session-distiller_recall(
 **Symptom**: "Skrill webhook handler fails to process refunds on Tuesdays."
 
 **Phase 0**:
-```python
+```pseudocode
 omo-session-distiller_recall(
     query="Skrill webhook refund Tuesday"
 )
@@ -146,13 +149,13 @@ The escape hatch exists so a missing memory layer doesn't paralyze the protocol 
 
 ---
 
-## Anti-Patterns Specific to Phase 0
+## Phase-0-Local Anti-Patterns
 
-> See `references/anti-patterns.md` for the full list. The Phase 0 specific ones:
+> These are **Phase 0 local** — they do not appear in the master `references/anti-patterns.md` list. The master file's AP-5 ("Skip Phase 0") is the global counterpart; the two below specialize it.
 
-- **AP-5 (Skip Phase 0)** — "This bug is obviously new, no point checking." Bug claims of novelty are wrong about 30% of the time. The 5-second cost is always worth paying.
-- **Over-narrow query** — including line numbers, exact error text byte-for-byte, or session-specific context. Recall is keyword-based; surface-level descriptions match better than transcripts.
-- **Single-query satisfied** — if the first query returns 0 hits, try ONE rephrasing before declaring "no hits." Different vocabulary (e.g. "leaderboard empty" vs "tournament rows missing") can hit different atoms.
+- **AP-5 (Skip Phase 0)** — see master list. "This bug is obviously new, no point checking." Bug claims of novelty are wrong roughly 30% of the time. The 5-second cost is always worth paying.
+- **Phase-0-local: Over-narrow query** — including line numbers, exact error text byte-for-byte, or session-specific context. Recall is keyword-based; surface-level descriptions match better than transcripts.
+- **Phase-0-local: Single-query-satisfied** — if the first query returns 0 hits, try ONE rephrasing before declaring "no hits." Different vocabulary (e.g. "leaderboard empty" vs "tournament rows missing") can hit different atoms.
 
 ---
 
