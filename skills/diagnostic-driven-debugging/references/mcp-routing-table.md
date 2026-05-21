@@ -15,8 +15,20 @@ For each symptom row:
 - **Primary tool**: the first thing to run. The bulk of evidence comes from here.
 - **Example invocation**: a runnable example you can adapt — concrete, not pseudocode
 - **Fallback**: when the primary fails, isn't installed, or returns nothing useful
+- **MCP unavailable fallback** (A4 addition): the next-best generic tool when the primary MCP server is not registered in your opencode session at all (different from "primary returned nothing" — different from "primary failed")
 
-Always run the primary first. Move to fallback only after primary returns no actionable evidence.
+Always run the primary first. Move to fallback only after primary returns no actionable evidence. Move to MCP-unavailable fallback only when the primary tool name is not in your tool registry.
+
+### What to do when MCP-unavailable fallback fires
+
+When you fall back from a primary MCP to its generic substitute, the evidence quality is **degraded** — the substitute typically gives you less structured, less queryable data. Phase 5 postmortem MUST set:
+
+```yaml
+evidence_quality: degraded
+degraded_reason: "primary MCP <tool-name> unavailable in session; used <fallback> instead"
+```
+
+This signal propagates to future Phase 0 recall — atoms harvested from degraded sessions get flagged so future agents treat them as lower-confidence references. The skill explicitly tracks evidence provenance to avoid amplifying weak evidence over recall cycles.
 
 ---
 
@@ -34,6 +46,7 @@ Always run the primary first. Move to fallback only after primary returns no act
   mcp-console-hub_search_redux(query="podId")
   ```
 - **Fallback**: `playwright_browser_evaluate` with `() => window.__REDUX_STORE__.getState()` (when the hub MCP isn't connected to the running app); failing that, a manual `console.log(store.getState())` snippet injected via `chrome-devtools_evaluate_script`
+- **MCP unavailable fallback**: if `mcp-console-hub_*` is not registered → use `chrome-devtools_evaluate_script` directly with `() => window.__REDUX_STORE__.getState()`; mark `evidence_quality: degraded` in postmortem. Last resort with no browser MCPs: `rtk grep` the Redux reducers + selectors to reason from code structure (mark `evidence_quality: partial` — code reading is not runtime evidence).
 
 ### Row 2 — Failed network request
 
@@ -54,6 +67,7 @@ Always run the primary first. Move to fallback only after primary returns no act
   ```
   Decode the JWT (head/payload, NOT the signature) and confirm `exp`, `iss`, scopes match what the API expects. Then return to the primary tools above.
 - **Fallback**: `chrome-devtools_list_network_requests` then `chrome-devtools_get_network_request(reqid=<n>)`; or `curl -v` against the backend if you know the endpoint
+- **MCP unavailable fallback**: if `mcp-console-hub_*` not registered → `chrome-devtools_list_network_requests` is the closest substitute; mark `evidence_quality: degraded`. With no browser MCPs at all → `curl -v` against the backend endpoint (you must know the URL + replicate auth headers manually); mark `evidence_quality: partial`. Server-side: tail backend logs via `rtk grep` on the request ID if logs are accessible.
 
 ### Row 3 — Performance regression
 
@@ -68,6 +82,7 @@ Always run the primary first. Move to fallback only after primary returns no act
   ```
   > Footgun: both reports must be on a filesystem path the MCP server can read (not necessarily the agent's CWD). Use absolute paths if unsure.
 - **Fallback**: `chrome-devtools_performance_start_trace` + `chrome-devtools_performance_analyze_insight` for ad-hoc traces; or `chrome-devtools_lighthouse_audit` for an accessibility-adjacent perf snapshot
+- **MCP unavailable fallback**: if `ohmyperf_*` not registered → `chrome-devtools_performance_start_trace` for trace capture (no statistical regression-cause analysis available); mark `evidence_quality: degraded`. With no perf MCPs → load the staging URL in a real Chrome with DevTools open, capture a manual PerformanceObserver dump via console; mark `evidence_quality: partial` (single-run, no variance signal).
 
 ### Row 4 — Runtime exception / crash
 
@@ -82,6 +97,7 @@ Always run the primary first. Move to fallback only after primary returns no act
   mcp-console-hub_find_by_file(filepath="src/api/tournament.ts")
   ```
 - **Fallback**: `chrome-devtools_list_console_messages(types=["error"])`. For production errors with minified frames: download the sourcemap (via `webfetch` from the JS bundle's `//# sourceMappingURL=` comment), then re-run `mcp-console-hub_parse_stack_trace` once the symbolicated stack is in the hub.
+- **MCP unavailable fallback**: if `mcp-console-hub_*` not registered → `chrome-devtools_list_console_messages(types=["error"])` only; lose error-chain causal grouping (the 2s window analysis is mcp-console-hub specific). Mark `evidence_quality: degraded`. With no browser MCPs → read the raw browser console via the user's screenshot OR Sentry/App-Insights dashboard via `webfetch`; mark `evidence_quality: partial`.
 
 ### Row 5 — Type / symbol error
 
@@ -96,6 +112,9 @@ Always run the primary first. Move to fallback only after primary returns no act
   ```
   > Indexing convention: `line` is **1-based**, `character` is **0-based**. Off-by-one is the most common copy-paste bug here.
 - **Fallback**: `rtk tsc --noEmit` (full compile); `ast_grep_search` for occurrences if LSP is slow
+- **MCP unavailable fallback**: if `lsp_*` not registered:
+  - **Compile-check substitute**: `rtk tsc --noEmit` (or equivalent: `cargo check`, `mypy`, `go vet`) is canonical — both LSP and the CLI compiler share the same type-checker core. Mark `evidence_quality: verified` (slower, but same correctness for the row's symptoms).
+  - **Symbol-search substitute**: `ast_grep_search` covers syntactic patterns but does NOT resolve semantic symbol identity across imports, re-exports, generics, or type aliases. For renames or impact analysis it WILL miss aliased re-exports and over-match similarly-named locals. Mark `evidence_quality: verified` ONLY when the symbol is a unique identifier within a single file; mark `evidence_quality: partial` when scope is multi-file or involves re-exports/generics. If you cannot tell which case you're in, assume `partial`.
 
 ### Row 6 — Data-layer bug
 
@@ -107,6 +126,7 @@ Always run the primary first. Move to fallback only after primary returns no act
   skill(name="database-inspector")
   ```
 - **Fallback**: For SQL Server (the playsweeps stack), `sqlcmd -S <server> -d <db> -Q "<query>"` or Azure Data Studio against the read replica. For Cosmos, the Azure Portal Data Explorer. If the data also lives in a Google Sheet sample → `gsheets_read`.
+- **MCP unavailable fallback**: if `database-inspector` skill not installed AND no DB MCPs registered → use the DB-native client (`sqlcmd` for SQL Server, `mongosh` for Cosmos-via-Mongo-API, `psql` for Postgres) executed via Bash; mark `evidence_quality: verified` (CLI is authoritative — the skill is a workflow guide, not the data source). If no DB access at all → request a data sample from the user via a Google Sheet + `gsheets_read`; mark `evidence_quality: partial` (sampled, not authoritative).
 
 ### Row 7 — Library / framework quirk
 
@@ -120,6 +140,10 @@ Always run the primary first. Move to fallback only after primary returns no act
   grep_app_searchGitHub(query="useEffect(() => { return () =>", language=["TSX","TypeScript"])
   ```
 - **Fallback**: `webfetch` to the official changelog; `perplexity_search` for "library X bug Y site:github.com"; `librarian` subagent for deep dive
+- **MCP unavailable fallback**: if `context7_*` not registered:
+  - **Current-version questions** ("what does v-latest do"): `webfetch` the library's GitHub raw README/CHANGELOG of `main` branch; mark `evidence_quality: verified` (raw docs are authoritative for current behavior).
+  - **Cross-version questions** ("worked in v3, broke in v4" — which IS in this row's symptom list): you need to webfetch v3's docs AND v4's docs separately and diff manually. context7's version-pinned chunks make this trivial; without context7 it's tedious and error-prone (easy to fetch wrong tag, miss intermediate breaking change). Mark `evidence_quality: degraded` (the answer is correct but the workflow is fragile).
+  - If `grep_app_*` not registered → use `github_search_code` for usage-pattern search, or fall back to `perplexity_search` with `site:github.com` filter; mark `evidence_quality: degraded` (less precise than grep_app's exact-pattern search).
 
 ### Row 8 — Race condition / async ordering / intermittent flake
 
@@ -134,6 +158,7 @@ Always run the primary first. Move to fallback only after primary returns no act
   ```
   > Strategy: don't try to "fix the race". Identify which two events must be ordered, then enforce the ordering at the source (await the prerequisite saga, debounce the trigger, or move state init upstream).
 - **Fallback**: Add temporary logging at the suspected race boundaries with monotonic timestamps; or use `playwright_*_browser_run_code_unsafe` to inject a synchronization probe.
+- **MCP unavailable fallback**: if neither `ohmyperf_*` nor `mcp-console-hub_get_timeline` registered → manual N×repro with stopwatch (acceptable for low-N reproducibility check, useless for variance signal); mark `evidence_quality: degraded`. Race detection without timeline tools is fundamentally weaker — the postmortem MUST flag this limitation so future Phase 0 doesn't over-trust the atom.
 
 ### Row 9 — Build / bundler / dependency-resolution failure
 
@@ -147,6 +172,7 @@ Always run the primary first. Move to fallback only after primary returns no act
   context7_resolve-library-id(libraryName="@foo/bar", query="export path changes in v2")
   ```
 - **Fallback**: Inspect `package.json` resolutions + lockfile (`rtk grep '"@foo/bar"' pnpm-lock.yaml`); compare to a known-good branch via `git diff main -- package.json pnpm-lock.yaml`.
+- **MCP unavailable fallback**: if `ast_grep_search` not registered → `rtk grep` with regex (`rtk grep -E 'import .* from "@foo/bar"'`); functionally equivalent for import-pattern searches but no AST awareness. Mark `evidence_quality: verified` (regex-on-imports is precise enough for this row). If `context7_*` not registered → `webfetch` the package's npm/crates.io page + GitHub releases.
 
 ### Row 10 — Environment / config drift
 
@@ -161,6 +187,7 @@ Always run the primary first. Move to fallback only after primary returns no act
   ```
   > Bisect strategy: produce a diff of the resolved config between the working and broken environment. The first non-trivial differing key is almost always the cause.
 - **Fallback**: For SQL Server/Azure: query the `[dbo].[Configuration]` table directly via the database-inspector path. For k8s deployments: `kubectl get configmap -o yaml` + `kubectl get secret -o yaml` (decoded).
+- **MCP unavailable fallback**: if `mcp-console-hub_*` not registered (cannot read Redux ava.flags directly) → load each environment in a real browser, dump `localStorage.getItem('ava-overrides')` + `window.__AVA_FLAGS__` via DevTools console; mark `evidence_quality: degraded`. With no browser access → ask user to share screenshots OR run a config-export script if one exists. Direct env-comparison via `webfetch` to the AVA config service stays available regardless of MCP registration.
 
 ### Row 11 — Familiar pattern, déjà-vu bug
 
@@ -176,6 +203,12 @@ Always run the primary first. Move to fallback only after primary returns no act
   omo-session-distiller_recall(query="tournamentSaga SET_POD before FETCH_LEADERBOARD race", repo="playsweeps-web", limit=5)
   ```
 - **Fallback**: `session_search` to grep raw transcripts; `git log -S "<pattern>"` for code-level history
+- **MCP unavailable fallback**: if `omo-session-distiller_recall` not registered → run **degraded Phase 0** with three partial substitutes IN ORDER (first hit wins):
+  1. **Filesystem grep on prior committed postmortems**: `rtk grep -l "<symptom keyword>" .sisyphus/postmortems/` (if the repo has committed prior postmortems, this IS the closest substitute — atoms' source material grepped directly). Mark `evidence_quality: degraded, degraded_reason: "distiller unavailable; grepped raw postmortems"`.
+  2. **`session_search`** to grep current/recent transcripts for the symptom. Less reliable (transcripts ≠ extracted atoms; no Problem/Resolution structure) but available. Mark `evidence_quality: degraded`.
+  3. **`git log -S "<pattern>"`** to find prior commits that touched the same site. Code-pattern signal only — won't surface problem→resolution pairs but useful when symptom maps to a known code region.
+
+  If ALL three substitutes return nothing, THEN treat as "no hits" and proceed to Phase 1. Mark `phase_0_skipped_reason: distiller-mcp-unavailable` ONLY if you ran zero substitutes (e.g., no repo access at all). Running degraded Phase 0 is strictly better than skipping — the recall loop's killer-feature status doesn't mean its absence is fatal, just that the alternatives are weaker. Document which substitute was used in the postmortem.
 
 ### Row 12 — Regression bisect (worked, then stopped)
 
@@ -189,6 +222,7 @@ Always run the primary first. Move to fallback only after primary returns no act
   # for each step: run the repro from Phase 1, then `git bisect good|bad`
   ```
 - **Fallback**: `github_list_commits` + manual diff inspection if local clone isn't available
+- **MCP unavailable fallback**: `git bisect` is a git CLI primitive (no MCP dependency); always available where git is available. If `github_*` MCP not registered → use `git log --oneline --all` + `git show <sha>` on the local clone for the same effect; mark `evidence_quality: verified` (CLI is authoritative). If neither local clone nor github MCP → request user clone the repo first; this row genuinely requires git access.
 
 ---
 
