@@ -66,7 +66,7 @@ The recall tool reports "nano-brain daemon down → recall uses filesystem grep"
 - Score thresholds are token-match counts, not semantic similarity
 - Without the daemon, recall surfaces lots of weak matches (score: 5 on tag-only matches) — risk of false-positive Phase 0 hits
 
-**Required correction (rolls into A2 amendment)**: Phase 0 Step 4 rubric should warn about low-score-but-tag-match noise when daemon is down. Add: "If recall reports 'nano-brain daemon down', double the relevance bar — score ≥ 10 minimum to consider Clearly Relevant."
+**Required correction (rolls into A2 amendment)**: Phase 0 Step 4 rubric should warn about low-score-but-tag-match noise when daemon is down. Provisional guidance based on a single query sample: "observed score range single-digit to ~50; scores <10 commonly represent tag-only matches with no semantic relevance — treat as noise unless tag-confirmed AND Problem text matches." This is **not** a calibrated cutoff — A2 should phrase it as an observation pending more samples, not a hard threshold rule. After 5+ real recall queries (in Stage B pilot), calibrate to a real range.
 
 ### Finding 5 — `expand` is broken in this environment
 
@@ -122,30 +122,50 @@ The postmortem template should provide an explicit "Export to memory" subsection
 
 ### Overall A1 verdict
 
-**PARTIAL PASS.** The harvest pipeline IS viable, but ONLY via the manual atoms/ path. The plan's original assumption (file-based auto-harvest from `.sisyphus/postmortems/`) is wrong. The skill must be amended to document the manual export step OR shift to writing postmortems within the session conversation.
+**FAIL on the documented path; viable alternative path identified.**
+
+The skill's currently-documented Phase 5 mechanism (auto-harvest from `.sisyphus/postmortems/*.md`) is broken — auto-harvester is 100% session-driven, never touches project files. Of 4 pass-sub-criteria, only 1 passed (manual atoms/ recall hit). The 3 other failures are not environmental — they are **skill-design defects** (wrong harvest path documented, wrong storage model assumed, no fallback for `expand`). Only the `expand` env bug is non-design.
+
+**Honest framing**: this is a FAIL with an actionable workaround. Calling it "PARTIAL PASS" would be the kind of softening euphemism the plan's own discipline forbids. The skill IS recoverable via A2 amendments — but recoverable from a FAIL state, not from a partial-success state.
 
 This is exactly the failure mode the plan's worst-case-recovery clause anticipated:
 > "**Worst case**: distiller fundamentally incompatible → skill must drop Phase 0 entirely OR build a custom recall index."
 
 We are NOT in worst case. We are in **Option 1 (path config mismatch)**: the skill can use the distiller's existing memory dir if it writes atoms in the correct format and location. No custom index needed.
 
-## Required follow-up (rolls into A2)
+## Required follow-up
 
-The Stage A2 fast-path stale-check PR will be expanded to also cover the 6 findings above. Specifically, A2 will:
+Reviewer correctly flagged that bundling A1's findings into A2 (originally just "fast-path stale-check") would scope-creep A2. Split into two stages:
 
-1. Add a **"Manual harvest export"** subsection to `prompts/postmortem-template.md` with the exact atom + solution file format and target paths
-2. Revert the T5 "no numeric score field" wording in `references/recall-first-checklist.md` — replace with "scores are token-match counts when nano-brain daemon is down; score ≥ 10 = consider Clearly Relevant, score < 10 = treat as noise unless tag-confirmed"
-3. Add a fallback in Phase 0 Step 5 for when `expand` fails
+### A2 (stays narrow, original scope)
+
+Original mandate: fix recall fast-path stale-check (Step 2.5 verify regression test exists+passes). One file edited: `references/recall-first-checklist.md`. Scenario T9 updated in same PR (already in original plan). **No scope change.**
+
+### A5 (NEW stage — added by plan amendment after A1)
+
+Covers the 5 corrective items from A1's findings:
+
+1. Add **"Manual harvest export"** subsection to `prompts/postmortem-template.md` with the exact atom + solution file format + canonical target paths under `~/.config/opencode/memory/`
+2. Revert the T5 "no numeric score field" wording in `references/recall-first-checklist.md` — replace with the **observation-not-rule** phrasing above (range observed, daemon-down caveat, calibration pending Stage B)
+3. Add a fallback in Phase 0 Step 5 for when `expand` fails (read atom file directly via path)
 4. Update the existing T9 fast-path scenario in `tests/scenario-bank.md` to reflect these corrections
 5. Add A1's findings as a citation in the skill's README
 
+A5 ships as its own PR titled `a5-harvest-pipeline-corrections-from-a1`. This keeps PR titles meaningful and reverting T5 happens in a clearly-titled commit reviewer can trace.
+
+### Reordering implication
+
+The plan's Stage A gate requires A1-A4 done before Stage B. A5 is added to Stage A (becomes A1-A5 done before Stage B). Plan harness file updated to reflect this in a separate plan-amendment PR.
+
 ## Cleanup
 
-After this PR merges and the A2 corrections land, delete the sentinel files:
+**Sentinels deleted IMMEDIATELY after this PR's evidence captured** — NOT after A5 merges. Reviewer correctly noted that holding them in `memory/atoms/shared/` pollutes recall for any unrelated query containing "HARVEST" or "SENTINEL" tokens during the A5 review window. A5 will be authored against the schema documented in Finding 6, not against the live sentinel files.
+
+Deletion command (executed at the time of this PR's commit):
 
 ```bash
 rm ~/.config/opencode/memory/atoms/shared/atom-2026-05-21-HARVEST-ROUNDTRIP-SENTINEL.md
 rm ~/.config/opencode/memory/solutions/shared/solution-2026-05-21-HARVEST-ROUNDTRIP-SENTINEL.md
 ```
 
-These are diagnostic probes, not durable knowledge.
+After deletion, recall queries for the sentinel phrase will return 0 hits — that's the expected post-cleanup state. The findings above stand on the captured evidence in this document.
