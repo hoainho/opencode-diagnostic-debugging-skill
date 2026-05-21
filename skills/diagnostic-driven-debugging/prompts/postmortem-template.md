@@ -27,6 +27,8 @@ bug_class: <one of: state-desync | network | perf | runtime-exception | type | d
 severity: <sev1 | sev2 | sev3>  # sev1 = prod outage / data loss / security breach; sev2 = degraded UX or partial outage; sev3 = minor / cosmetic
 area_tag: <optional, free-form, e.g. "tournaments/leaderboard" or "auth/refresh-token">
 recall_hit: <yes-fast-path | yes-partial | no-novel | distiller-empty>
+evidence_quality: <verified | partial | degraded>  # A4: provenance signal — verified = primary MCP succeeded; partial = had to reason from code or sampled data instead of runtime evidence; degraded = primary MCP unavailable, used generic substitute (loss of structure/queryability)
+degraded_reason: <required only if evidence_quality is "degraded" or "partial"; one-line explanation, e.g., "primary mcp-console-hub_get_redux_state unavailable; used chrome-devtools_evaluate_script instead">
 fix_commit: <sha or "uncommitted">
 time_spent_minutes: <integer>
 ---
@@ -97,6 +99,7 @@ bug_class: race
 severity: sev2
 area_tag: tournaments/leaderboard
 recall_hit: no-novel
+evidence_quality: verified
 fix_commit: a1b2c3d
 time_spent_minutes: 42
 ---
@@ -186,6 +189,8 @@ No relevant atoms in distiller. This postmortem is the first record of this bug 
 | `severity` | yes | enum `sev1` / `sev2` / `sev3` | Prioritization signal for recall: sev1 atoms surface first |
 | `area_tag` | no | string (`module/feature` form) | Narrower than bug_class — used to disambiguate when class is too coarse |
 | `recall_hit` | yes | enum (see template) | Tracks the recall loop's hit rate over time |
+| `evidence_quality` | yes | enum `verified` / `partial` / `degraded` | A4 provenance signal — `verified` (primary MCP succeeded), `partial` (reasoned from code/samples instead of runtime), `degraded` (primary MCP unavailable, used generic substitute). Future Phase 0 recall flags degraded atoms as lower-confidence. |
+| `degraded_reason` | conditional | string (≤80 chars) | Required iff `evidence_quality ∈ {partial, degraded}`. One-line explanation. Enables future recall to understand WHY the evidence was weak. |
 | `fix_commit` | yes | SHA or `"uncommitted"` | Audit trail back to the code change |
 | `time_spent_minutes` | yes | integer | Cost data — feeds the "is this skill saving time?" metric |
 
