@@ -57,7 +57,14 @@ omo-session-distiller_recall(
 
 ### Step 4 — Interpret the response
 
-The tool returns ranked atom hits, each with a Problem statement and a Resolution. There is **no numeric score field** — ranking is positional only. **The first hit is not guaranteed to be the best match**; always read the Problem text of the top 2-3 hits before deciding. Use this rubric:
+The tool returns ranked atom hits, each with a Problem statement, a Resolution, **and a numeric score** (revised post-A1 — the prior claim of "no numeric score field" was wrong; recall output shows e.g. `(score: 42)`, `(score: 8)`, `(score: 2)` inline in the markdown header for each hit).
+
+**Score interpretation depends on whether the nano-brain semantic-search daemon is up**:
+
+- **Daemon up** (semantic search): scores reflect semantic similarity. Higher = more relevant. A1 has not yet calibrated typical ranges in daemon-up mode (deferred to Stage B pilot).
+- **Daemon down** (filesystem-grep fallback): recall output explicitly says "Source: local filesystem grep (nano-brain daemon down)" at the top. In this mode scores are **token-match counts** (how many times the query tokens appeared in the atom file). Observation from A1 round-trip + spot checks: scores in this mode range single-digit to ~50. Provisional guidance: treat **score < 10 as tag-only noise** (matched by tag/keyword but not by Problem text), require **score ≥ 10 plus Problem-text relevance** to classify as Clearly Relevant. Recalibrate after Stage B with more samples.
+
+**The first hit is not guaranteed to be the best match**; always read the Problem text of the top 2-3 hits before deciding. Use this rubric:
 
 | Relevance | Indicator | Action |
 |---|---|---|
@@ -75,6 +82,7 @@ If you got a Clearly Relevant hit and intend to fast-path:
    ```pseudocode
    omo-session-distiller_expand(atom_id="<atom-id-or-slug>", around=2)
    ```
+   **If expand errors** (observed in some opencode environments; A1 finding): read the atom file directly via the file path shown in the recall output as `**Path**: atoms/<repo>/<id>.md` — convert the relative path to absolute: `~/.config/opencode/memory/atoms/<repo>/<id>.md`. Then `read` it. If the atom has a `archive:` frontmatter field, also read `~/.config/opencode/memory/archives/<archive-filename>` for the full session context. Mark `evidence_quality` accordingly: if you got atom content via `expand` → `verified`; if via direct file read → still `verified` (same data, different access path); if archive file also unavailable → `partial`.
 2. **Verify the previously-applied fix is still in the code**. Bug regressions happen — the prior fix may have been refactored away. Use `lsp_find_references` or `rtk grep` on the key symbols from the Resolution.
 3. **Verify the prior fix's regression test exists, is enabled, and currently passes against the current working tree.** The fix's presence in code is necessary but not sufficient — the test that proved it works must also be present, enabled, AND green AGAINST THE CURRENT WORKING TREE (not historical CI status against a different SHA). Steps:
    - From the atom's Resolution, identify the test name(s) added when the original fix landed (atoms typically cite test paths like `tests/integration/foo.test.ts` or test names like `it('does X correctly')`)
@@ -86,7 +94,7 @@ If you got a Clearly Relevant hit and intend to fast-path:
    - **Test missing** → atom's invariant is no longer protected; resolution is **suspect**. Demote to Partially Relevant. Continue to Phase 1. Do NOT fast-path.
    - **Test skipped/disabled** → same effect as missing (provides no signal); treat as missing. Demote to Partially Relevant. **Additionally**: flag the skip itself as a separate finding in the eventual Phase 5 postmortem — disabled regression tests for atom-cited invariants are a project-level smell worth surfacing (this is the AP-11 trap from `references/anti-patterns.md` manifesting at the recall layer).
    - **Test exists, enabled, currently FAILS** against current HEAD → there IS a regression at the same site, but the atom's prescribed fix may not address this variant. Demote to Partially Relevant; use atom as Phase 3 hypothesis seed.
-   - **Test exists, enabled, currently PASSES** against current HEAD → proceed to step 4.
+   - **Test exists, enabled, currently PASSES** against current HEAD → proceed to item 4 of this verification chain (fix-still-present branch below).
    - **Verification unavailable** (cannot run tests AND cannot confirm CI-of-current-HEAD) → mark classification as UNVERIFIED. Treat as Partially Relevant. Continue to Phase 1. Do NOT fast-path on faith.
 4. If the fix is **still present** AND step 3 returned "enabled+passes": **demote the classification to Partially Relevant**. This is NOT the same bug — the prior fix didn't cover this case (otherwise the test would catch it). The atom remains useful as a Phase 3 hypothesis seed. Continue to Phase 1.
 5. If the fix is **gone**: classification stays Clearly Relevant — that's likely the bug. Re-apply with appropriate adaptation, then continue to Phase 5 (still write the postmortem; this regression is itself worth recording).
