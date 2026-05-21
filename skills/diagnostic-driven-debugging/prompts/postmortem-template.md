@@ -220,27 +220,33 @@ There are two paths for a postmortem to become a recall-able atom:
 
 ### The export procedure
 
-Given a postmortem at `.sisyphus/postmortems/2026-05-21-my-bug.md`:
+Given a postmortem at `.sisyphus/postmortems/<your-date>-<your-slug>.md`:
 
 ```bash
-# 1. Identify the repo (the postmortem's frontmatter has `repo: <slug>`)
-REPO=$(grep '^repo:' .sisyphus/postmortems/2026-05-21-my-bug.md | awk '{print $2}')
+# 0. Point at YOUR postmortem (change this one variable)
+POSTMORTEM=.sisyphus/postmortems/2026-05-21-my-bug.md   # ← edit per use
+
+# 1. Extract DATE, SLUG, REPO from the postmortem's frontmatter
+DATE=$(grep '^date:' "$POSTMORTEM" | awk '{print $2}')
+SLUG=$(grep '^slug:' "$POSTMORTEM" | awk '{print $2}')
+REPO=$(grep '^repo:' "$POSTMORTEM" | awk '{print $2}')
 
 # 2. Ensure memory dirs exist
 mkdir -p ~/.config/opencode/memory/atoms/$REPO
 mkdir -p ~/.config/opencode/memory/solutions/$REPO
 
-# 3. Write the ATOM file (the searchable index entry)
-cat > ~/.config/opencode/memory/atoms/$REPO/atom-2026-05-21-my-bug.md <<'EOF'
+# 3. Write the ATOM file (the searchable index entry).
+#    Filename is derived from DATE + SLUG → unique per postmortem.
+cat > ~/.config/opencode/memory/atoms/$REPO/atom-${DATE}-${SLUG}.md <<EOF
 ---
 type: atom
-id: atom-2026-05-21-my-bug
-verified_at: 2026-05-21
+id: atom-${DATE}-${SLUG}
+verified_at: ${DATE}
 ticket: <jira-key or N/A>
 tags: [<keyword1>, <keyword2>, ...]    # use postmortem's area_tag + bug_class + key file/feature names
-applies_to: [<repo-slug>]
+applies_to: [${REPO}]
 file: <primary file path from Fix section>
-related_solution: solution-2026-05-21-my-bug
+related_solution: solution-${DATE}-${SLUG}
 ---
 
 **Fact**: <copy the Bug Summary line from the postmortem; this is what recall will grep>
@@ -252,27 +258,32 @@ related_solution: solution-2026-05-21-my-bug
 **Related files**: <copy file:line refs from Fix section>
 EOF
 
-# 4. Write the SOLUTION file (the rich linked artifact)
-cat > ~/.config/opencode/memory/solutions/$REPO/solution-2026-05-21-my-bug.md <<'EOF'
+# 4. Write the SOLUTION file (the rich linked artifact).
+#    Filename also derived from DATE + SLUG.
+cat > ~/.config/opencode/memory/solutions/$REPO/solution-${DATE}-${SLUG}.md <<EOF
 ---
 type: solution
-id: solution-2026-05-21-my-bug
+id: solution-${DATE}-${SLUG}
 problem: "<copy Bug Summary>"
-verified_at: 2026-05-21
+verified_at: ${DATE}
 ticket: <jira-key or N/A>
 sessions: [<current-session-id or "n/a">]
 tags: [<same tags as atom>]
-applies_to: [<repo-slug>]
-related_atoms: [atom-2026-05-21-my-bug]
+applies_to: [${REPO}]
+related_atoms: [atom-${DATE}-${SLUG}]
 ---
 
 <copy the FULL body of the postmortem starting from ## Bug Summary onward>
 EOF
+```
 
-# 5. Verify the export round-trips through recall
+```pseudocode
+# 5. Verify the export round-trips through recall (MCP call — NOT bash — invoke via your agent):
 omo-session-distiller_recall(query="<keyword phrase from Bug Summary>", limit=3)
 # → the new atom should appear in results, score should be ≥10 (daemon-down) or relevant (daemon-up)
 ```
+
+> **Note**: switched the heredocs from `<<'EOF'` (literal, no interpolation) to `<<EOF` (interpolates `${DATE}`, `${SLUG}`, `${REPO}`). The `<...>` angle-bracket placeholders inside the body are still meant to be edited by hand before saving — shell won't touch them.
 
 ### When you don't need to do this
 
@@ -295,7 +306,7 @@ Optional but recommended:
 - `related_solution:` link to paired solution file
 - `file:` primary file path from the Fix section
 - `ticket:` Jira key for cross-reference
-- A1-introduced extension fields (`evidence_quality`, `degraded_reason`, etc.) — preserved as YAML metadata
+- A4-introduced extension fields (`evidence_quality`, `degraded_reason`, `phase_0_skipped_reason`) — preserved as YAML metadata; not yet harvester-indexed (see Frontmatter Field Reference's Harvester Contract tier model)
 
 ---
 
