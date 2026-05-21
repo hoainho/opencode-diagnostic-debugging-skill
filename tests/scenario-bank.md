@@ -572,33 +572,43 @@ rtk git log --oneline -- playsweeps-backend/Sweeps.Awards/DailyBonusCalculator.c
 
 **Result**: a recent commit (3 days ago, `f1a2b3c4` titled "refactor: simplify DailyBonusCalculator") REMOVED the inverse-multiplier guard that fixed the bug 3 months ago. The original spec misreading is back.
 
-### Step 5 — Verify regression test exists AND passes (Step 3 — A2 NEW addition)
+### Step 5 — Verify regression test exists, enabled, passing (Step 3 — A2 NEW addition)
 
-Per A2's Step 3 addition (added 2026-05-21 to close the stale-fix loophole): even when the fix is gone, verify the regression test that originally proved it works. If the test was deleted along with the fix, the atom's resolution may need adaptation rather than verbatim reapplication.
+Per A2's Step 3 (closes the stale-fix loophole): even when the fix is gone, verify the regression test that originally proved it works. Four branches: missing / skipped / failing / passing. The decision drives whether fast-path is safe.
 
 ```pseudocode
 # From atom-2026-02-15-daily-bonus-double-award Resolution:
 # "Added regression test in tests/awards/DailyBonusCalculator.Tests.cs::FridayMultiplierShouldHalveBonus"
-rtk grep "FridayMultiplierShouldHalveBonus" tests/
-rtk test "playsweeps-backend.Sweeps.Awards.Tests" --filter FridayMultiplierShouldHalveBonus
+rtk grep "FridayMultiplierShouldHalveBonus" tests/        # exists? ✓
+rtk grep "\.Skip\|\[Skip" tests/awards/DailyBonusCalculator.Tests.cs    # disabled? ✗
+rtk test --filter FridayMultiplierShouldHalveBonus        # run it
 ```
 
-**Result**: test file still present in `tests/awards/DailyBonusCalculator.Tests.cs`. Running the test → it **FAILS** (red) because the guard is gone. This is exactly what step 3 expects when fix is gone:
+**Result**:
+- Test file exists in `tests/awards/DailyBonusCalculator.Tests.cs` ✓
+- Not skipped (no `Skip=` attribute on the `[Fact]`) ✓
+- Running it: **FAILS** (red) — exactly because the guard is gone (commit `f1a2b3c4` removed both the guard AND the regression coverage was never broken because the test was for the bug's WRONG-behavior assertion, which now passes... wait)
 
-> "If test exists but currently fails → there IS a regression at the same site, but the atom's prescribed fix may not address this variant. Demote to Partially Relevant; use atom as Phase 3 hypothesis seed."
+**Important clarification** (added during A2 review fixes): in this scenario the regression test asserts `bonus == base * 0.5` for Fridays (the CORRECT post-fix behavior). With the guard removed, the actual computation returns `base * 2.0`, so the test ASSERTS-FAILS — exactly the "test exists, enabled, currently fails against current HEAD" branch.
 
-**Decision**: per the A2 rule, demote to **Partially Relevant**. The test exists+fails (regression confirmed) but the atom's verbatim fix may need adaptation if the refactor changed surrounding APIs. Continue to Phase 1 with the atom as Phase 3 hypothesis seed — do NOT fast-path verbatim.
+**Decision**: per Step 3's "Test exists, enabled, currently FAILS" branch: "there IS a regression at the same site, but the atom's prescribed fix may not address this variant. Demote to Partially Relevant; use atom as Phase 3 hypothesis seed."
 
-> **Note vs original T9 framing**: Pre-A2, this scenario fast-pathed directly to Phase 4 with verbatim fix reapplication. The A2 Step 3 addition tightened this: presence-of-fix-in-code alone is insufficient evidence; the regression test must also be green AFTER re-applying the fix. The scenario now takes a more cautious path — confirms regression via failing test (red), reapplies adapted fix in Phase 4, confirms test goes green. Slightly more work but eliminates the propagate-wrong-fix loophole that A2 was designed to close.
+This is **the fast-path branch when the atom's verbatim fix is sufficient** — i.e., reapplying the original guard from the atom restores `0.5` multiplier and the failing test goes green. No adaptation needed because `f1a2b3c4` was a pure-deletion refactor (didn't change surrounding APIs).
 
-### Phase 1-3 — Lightweight investigation (NOT fully skipped post-A2)
+### Phases 1-3 — Compressed (post-A2 fast-path with verification gate)
 
-Because the classification demoted to Partially Relevant (test-exists-but-failing), the controller does:
-- **Phase 1**: confirm repro by running the failing test — already done above (test is the repro)
-- **Phase 2**: read the diff at f1a2b3c4 to see exactly what was removed/changed
-- **Phase 3**: form ONE adapted-hypothesis: "the atom's prescribed fix, adapted to the refactored API surface in f1a2b3c4, will restore correct Friday multiplier behavior." Falsification: re-apply, re-run test, assert green.
+Because the regression test exists+enabled+fails, the fast-path is gated by ONE step: re-apply the atom's verbatim fix and confirm the test goes green.
 
-Total time: ~10 minutes for these three phases combined (vs ~30-60min for novel investigation, vs ~5min for verbatim fast-path). The A2 Step 3 check costs ~5 extra minutes vs pre-A2 fast-path BUT prevents an entire class of stale-fix propagation bugs.
+- **Phase 1** (repro): the failing test IS the repro. Done.
+- **Phase 2** (evidence): `git show f1a2b3c4` confirms pure-deletion refactor. ~30 seconds.
+- **Phase 3** (hypothesis): single adapted-hypothesis with empirical falsification: "reapply atom's verbatim fix → test goes green." Cost: ~2 minutes including re-test.
+- **Phase 4** (fix): patch applied; test re-run; **green**. Verification gate passes.
+
+**Total time post-A2**: ~5-8 minutes (vs pre-A2 verbatim fast-path which was ~5 minutes WITHOUT the safety check that the fix actually addresses the regression).
+
+**The marginal cost of A2's Step 3 in this scenario is ~30 seconds-2 minutes** (test runtime is the bound — this is a unit test ~600ms per run, fast). For atoms whose regression test is a heavyweight integration test (DB fixtures, container spin-up, network mocks — common in `playsweeps-backend.IntegrationTests` or `sweeps-automated-test` E2E suites), the marginal cost is **2-15 minutes per run**. The cost is still amortized across propagation-bug prevention, but the "Phase 0 is always cheap" framing must be qualified for heavyweight regression tests.
+
+> **Note vs original T9 framing**: Pre-A2, this scenario fast-pathed directly to Phase 4 with verbatim fix reapplication and ZERO test re-verification. The A2 Step 3 addition keeps the fast-path **as long as the test branch resolves favorably** (test exists, enabled, and failing-in-a-way-that-the-verbatim-fix-resolves). Only adaptation-required cases (e.g., refactor changed surrounding API, requiring atom's fix to be modified) take the demoted "Partially Relevant + Phase 3 hypothesis seed" path. This scenario is still the bank's fast-path exemplar — just with a 30s-2min verification gate instead of zero verification.
 
 ### Phase 4 — Fix
 1. Revert the relevant lines of `f1a2b3c4` that removed the guard
@@ -613,9 +623,11 @@ Total time: ~10 minutes for these three phases combined (vs ~30-60min for novel 
 - Prevention: the HISTORY comment convention + CI lint enforcement
 
 ### Protocol resilience check (post-A2)
-✅ Phase 0 Step 2 (code-presence check) executed correctly: fix is gone. ✅ Phase 0 Step 3 (regression-test check, A2 addition) caught that demote-to-Partially-Relevant is the right call when test fails post-refactor — closes the stale-fix propagation loophole. ✅ Phases 1-3 ran in lightweight mode (~10min total) because the recall atom seeded Phase 3 with an adapted-hypothesis directly. ✅ Phase 5 written with chained_atoms reference to original atom-2026-02-15. ✅ Phase 4 re-runs the regression test as the verification gate (test was red, must be green after fix).
+✅ Step 2 (code-presence): fix is gone, correctly detected. ✅ Step 3 (regression-test gate, A2 addition): test exists, NOT skipped, currently FAILS — branch "Test exists, enabled, currently FAILS" fires correctly. ✅ Skip-detection branch implemented and explicitly checked (closes AP-11 trap at the recall layer). ✅ Phases 1-3 compressed to ~3-5 minutes total because the atom's verbatim fix is sufficient (pure-deletion refactor at f1a2b3c4). ✅ Phase 4 re-runs the regression test as the verification gate (red → green). ✅ Phase 5 postmortem references chained_atoms.
 
-This test is **the highest-value protocol exercise in the bank** — proves the regression-test-gate (A2 Step 3) prevents propagation of stale or rotted fixes. Pre-A2 this scenario fast-pathed verbatim; post-A2 it takes a 5-minute-slower-but-safer path. The marginal cost is the price of correctness.
+This test is **the bank's fast-path exemplar** — proves that fast-path is STILL achievable post-A2 when the test branch resolves favorably (exists+enabled+failing-resolvable-by-verbatim-fix). The A2 Step 3 gate adds a 30s-2min verification cost (for unit-test regression tests) and prevents the propagate-wrong-fix class. For heavyweight regression tests (integration/E2E), the gate cost is 2-15min — still amortized against propagation-bug prevention but the "Phase 0 always cheap" claim only applies when the cited regression test is lightweight.
+
+**A2 Step 3 contract**: fast-path requires (fix-gone) AND (test exists, enabled, fails). Pre-A2: only fix-gone. The added test-gate is what makes fast-path safe in the presence of refactors that delete fixes without updating regression coverage.
 
 ---
 
