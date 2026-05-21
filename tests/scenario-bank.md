@@ -564,7 +564,7 @@ omo-session-distiller_recall(query="daily bonus double award friday")
 > Problem: "Daily Bonus award engine doubles awards on Fridays because the `friday_special_multiplier` flag was meant to be 0.5x bonus weight but the multiplier was implemented as 2.0x (the dev misread the spec)."
 > Resolution: "Patched `DailyBonusCalculator.cs` to read multiplier as inverse. Commit b3c4d5e6. Added regression test."
 
-### Step 5 — Verify prior fix is still present
+### Step 5 — Verify prior fix is still present (Step 2 — code-presence check)
 ```pseudocode
 lsp_find_references(filePath="playsweeps-backend/Sweeps.Awards/DailyBonusCalculator.cs", line=88, character=15)
 rtk git log --oneline -- playsweeps-backend/Sweeps.Awards/DailyBonusCalculator.cs | head -10
@@ -572,10 +572,33 @@ rtk git log --oneline -- playsweeps-backend/Sweeps.Awards/DailyBonusCalculator.c
 
 **Result**: a recent commit (3 days ago, `f1a2b3c4` titled "refactor: simplify DailyBonusCalculator") REMOVED the inverse-multiplier guard that fixed the bug 3 months ago. The original spec misreading is back.
 
-**Per T9 DEFECT-1 Step 5 rule**: "If the fix is **gone**: classification stays Clearly Relevant — that's likely the bug. Re-apply with appropriate adaptation, then continue to Phase 5."
+### Step 5 — Verify regression test exists AND passes (Step 3 — A2 NEW addition)
 
-### Phase 1-3 — Skipped (fast-path)
-Step 5's verification (prior fix gone) **is** the diagnosis: the bug is the regression of a previously-fixed issue at a known commit. No new investigation needed — the atom's resolution is the fix, with adaptation. Phase 4 will verify by re-applying the guard and re-running the original regression test from atom-2026-02-15.
+Per A2's Step 3 addition (added 2026-05-21 to close the stale-fix loophole): even when the fix is gone, verify the regression test that originally proved it works. If the test was deleted along with the fix, the atom's resolution may need adaptation rather than verbatim reapplication.
+
+```pseudocode
+# From atom-2026-02-15-daily-bonus-double-award Resolution:
+# "Added regression test in tests/awards/DailyBonusCalculator.Tests.cs::FridayMultiplierShouldHalveBonus"
+rtk grep "FridayMultiplierShouldHalveBonus" tests/
+rtk test "playsweeps-backend.Sweeps.Awards.Tests" --filter FridayMultiplierShouldHalveBonus
+```
+
+**Result**: test file still present in `tests/awards/DailyBonusCalculator.Tests.cs`. Running the test → it **FAILS** (red) because the guard is gone. This is exactly what step 3 expects when fix is gone:
+
+> "If test exists but currently fails → there IS a regression at the same site, but the atom's prescribed fix may not address this variant. Demote to Partially Relevant; use atom as Phase 3 hypothesis seed."
+
+**Decision**: per the A2 rule, demote to **Partially Relevant**. The test exists+fails (regression confirmed) but the atom's verbatim fix may need adaptation if the refactor changed surrounding APIs. Continue to Phase 1 with the atom as Phase 3 hypothesis seed — do NOT fast-path verbatim.
+
+> **Note vs original T9 framing**: Pre-A2, this scenario fast-pathed directly to Phase 4 with verbatim fix reapplication. The A2 Step 3 addition tightened this: presence-of-fix-in-code alone is insufficient evidence; the regression test must also be green AFTER re-applying the fix. The scenario now takes a more cautious path — confirms regression via failing test (red), reapplies adapted fix in Phase 4, confirms test goes green. Slightly more work but eliminates the propagate-wrong-fix loophole that A2 was designed to close.
+
+### Phase 1-3 — Lightweight investigation (NOT fully skipped post-A2)
+
+Because the classification demoted to Partially Relevant (test-exists-but-failing), the controller does:
+- **Phase 1**: confirm repro by running the failing test — already done above (test is the repro)
+- **Phase 2**: read the diff at f1a2b3c4 to see exactly what was removed/changed
+- **Phase 3**: form ONE adapted-hypothesis: "the atom's prescribed fix, adapted to the refactored API surface in f1a2b3c4, will restore correct Friday multiplier behavior." Falsification: re-apply, re-run test, assert green.
+
+Total time: ~10 minutes for these three phases combined (vs ~30-60min for novel investigation, vs ~5min for verbatim fast-path). The A2 Step 3 check costs ~5 extra minutes vs pre-A2 fast-path BUT prevents an entire class of stale-fix propagation bugs.
 
 ### Phase 4 — Fix
 1. Revert the relevant lines of `f1a2b3c4` that removed the guard
@@ -589,10 +612,10 @@ Step 5's verification (prior fix gone) **is** the diagnosis: the bug is the regr
 - **References the original atom** so distillation chains them. Future Phase 0 queries for either bug surface BOTH atoms, with the chain clear: "first occurrence — fix — refactor regression — re-fix-with-guard."
 - Prevention: the HISTORY comment convention + CI lint enforcement
 
-### Protocol resilience check
-✅ Phase 0 fast-path executed correctly: tentative Clearly Relevant from Step 4 → confirmed by Step 5 (fix gone) → fast-pathed to Phase 4 without re-doing 2-3. ✅ Phase 5 still written even though Phases 1-3 were skipped (per T9 DEFECT-1 fix: "still write the postmortem; this regression is itself worth recording"). ✅ The chain atom→regression-atom is exactly the memory-compounding loop the skill exists to create.
+### Protocol resilience check (post-A2)
+✅ Phase 0 Step 2 (code-presence check) executed correctly: fix is gone. ✅ Phase 0 Step 3 (regression-test check, A2 addition) caught that demote-to-Partially-Relevant is the right call when test fails post-refactor — closes the stale-fix propagation loophole. ✅ Phases 1-3 ran in lightweight mode (~10min total) because the recall atom seeded Phase 3 with an adapted-hypothesis directly. ✅ Phase 5 written with chained_atoms reference to original atom-2026-02-15. ✅ Phase 4 re-runs the regression test as the verification gate (test was red, must be green after fix).
 
-This test is **the highest-value protocol exercise in the bank** — it's the only one where Phase 0 alone solves the bug, and proving Phase 0 fast-paths cleanly is half the skill's design premise.
+This test is **the highest-value protocol exercise in the bank** — proves the regression-test-gate (A2 Step 3) prevents propagation of stale or rotted fixes. Pre-A2 this scenario fast-pathed verbatim; post-A2 it takes a 5-minute-slower-but-safer path. The marginal cost is the price of correctness.
 
 ---
 

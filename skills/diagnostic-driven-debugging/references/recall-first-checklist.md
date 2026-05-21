@@ -76,8 +76,17 @@ If you got a Clearly Relevant hit and intend to fast-path:
    omo-session-distiller_expand(atom_id="<atom-id-or-slug>", around=2)
    ```
 2. **Verify the previously-applied fix is still in the code**. Bug regressions happen — the prior fix may have been refactored away. Use `lsp_find_references` or `rtk grep` on the key symbols from the Resolution.
-3. If the fix is **still present**: **demote the classification to Partially Relevant**. This is NOT the same bug — the prior fix didn't cover this case. The atom remains useful as a Phase 3 hypothesis seed. Continue to Phase 1.
-4. If the fix is **gone**: classification stays Clearly Relevant — that's likely the bug. Re-apply with appropriate adaptation, then continue to Phase 5 (still write the postmortem; this regression is itself worth recording).
+3. **Verify the prior fix's regression test exists AND currently passes.** The fix's presence in code is necessary but not sufficient — the test that proved it works must also be present and green. Steps:
+   - From the atom's Resolution, identify the test name(s) added when the original fix landed (atoms typically cite test paths like `tests/integration/foo.test.ts` or test names like `it('does X correctly')`)
+   - `rtk grep` for the test name(s) — confirm the file/case exists
+   - Run the test (or check CI for its last green status) — confirm it passes RIGHT NOW, not historically
+   - If test missing → the prior fix's invariant is no longer protected; the atom's resolution is **suspect**. Demote classification to Partially Relevant. Continue to Phase 1 — do NOT fast-path. The atom may be misdiagnosed or its fix may have rotted; treating it as Clearly Relevant could propagate a wrong fix.
+   - If test exists but currently fails → there IS a regression at the same site, but the atom's prescribed fix may not address this variant. Demote to Partially Relevant; use atom as Phase 3 hypothesis seed.
+   - If test exists AND passes → proceed to step 4.
+4. If the fix is **still present** AND its regression test exists+passes (step 3 green): **demote the classification to Partially Relevant**. This is NOT the same bug — the prior fix didn't cover this case (otherwise the test would catch it). The atom remains useful as a Phase 3 hypothesis seed. Continue to Phase 1.
+5. If the fix is **gone**: classification stays Clearly Relevant — that's likely the bug. Re-apply with appropriate adaptation, then continue to Phase 5 (still write the postmortem; this regression is itself worth recording).
+
+**Why step 3 matters**: without it, the fast-path propagates wrong fixes faster. Step 2 alone only checks "is the patch in code?" but a patch can be present yet unprotected — if the regression test was deleted or skipped, future-self has no signal that the fix actually works. Step 3 closes this loophole.
 
 ---
 
