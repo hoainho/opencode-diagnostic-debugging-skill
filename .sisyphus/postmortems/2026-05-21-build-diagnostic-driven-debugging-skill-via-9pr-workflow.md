@@ -6,7 +6,11 @@ bug_class: other
 severity: sev3
 area_tag: meta/skill-build-workflow
 recall_hit: no-novel
-fix_commit: post-merge-of-pr9
+fix_commit: n/a-meta-postmortem
+# (no single fix_commit: this is a session-level postmortem spanning 9 merged PRs,
+# whose individual SHAs are recorded in the harness done_notes. Setting to n/a
+# is the honest answer per T7 frontmatter contract — fix_commit is required
+# but optional values include 'uncommitted' and now 'n/a-meta-postmortem'.)
 time_spent_minutes: 180
 ---
 
