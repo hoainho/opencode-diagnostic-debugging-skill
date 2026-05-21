@@ -115,6 +115,7 @@ Phase 0 recall result: <<<ATOM_REFERENCE_IF_PARTIAL_HIT_OR_'no hits'>>>
 
 [CONSTRAINTS]
 - Do NOT propose fixes. Hypothesis + test only.
+- **Mechanism descriptions must explain causation only.** Do NOT include remediation language ("switch to", "replace with", "add a guard", "use X instead of Y") — even in passing. If a fix is implied, restate as causation: "the cache key collides on multi-user requests" not "switch to per-user keys".
 - Do NOT propose "rewrite this module" or other large refactors. Bugfix scope.
 - If the evidence is insufficient to form new hypotheses, say so explicitly and list the 2-3 evidence gaps that would unblock you.
 - If one of my falsified hypotheses was actually correct and I mis-falsified it, flag it with the corrected falsification test.
