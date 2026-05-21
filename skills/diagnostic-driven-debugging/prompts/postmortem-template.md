@@ -190,11 +190,19 @@ No relevant atoms in distiller. This postmortem is the first record of this bug 
 | `area_tag` | no | string (`module/feature` form) | Narrower than bug_class — used to disambiguate when class is too coarse |
 | `recall_hit` | yes | enum (see template) | Tracks the recall loop's hit rate over time |
 | `evidence_quality` | yes | enum `verified` / `partial` / `degraded` | A4 provenance signal — `verified` (primary MCP succeeded), `partial` (reasoned from code/samples instead of runtime), `degraded` (primary MCP unavailable, used generic substitute). Future Phase 0 recall flags degraded atoms as lower-confidence. |
-| `degraded_reason` | conditional | string (≤80 chars) | Required iff `evidence_quality ∈ {partial, degraded}`. One-line explanation. Enables future recall to understand WHY the evidence was weak. |
+| `degraded_reason` | conditional | string (≤80 chars) | Required iff `evidence_quality ∈ {partial, degraded}`. One-line explanation. Enables future recall to understand WHY the evidence was weak. If missing when required → harvester silently treats atom as `evidence_quality: degraded, reason: unspecified` (provenance signal lost; the omission itself is a smell). |
+| `phase_0_skipped_reason` | conditional | string (≤80 chars) | Required iff Phase 0 was skipped (e.g., `distiller-mcp-unavailable`). Documents the skip so future recall doesn't treat it as a "no hits" data point. Distinct from `recall_hit: distiller-empty` which means recall ran but returned nothing. |
 | `fix_commit` | yes | SHA or `"uncommitted"` | Audit trail back to the code change |
 | `time_spent_minutes` | yes | integer | Cost data — feeds the "is this skill saving time?" metric |
 
-The harvester reads these fields verbatim. Do not rename, do not skip required, do not add fields outside this set (extensions break the index).
+**Harvester contract** (clarified per A1+A4):
+- **Required fields** (rows above marked `yes`): the harvester indexes these. Rename → unsearchable atom. Skip → silently demoted to defaults.
+- **Optional fields** marked `no` or `conditional`: harvester silently ignores unknown keys, so adding fields is safe but the new fields are NOT indexed unless the harvester is migrated. Until then they exist as provenance signals for human/agent readers of the raw atom file.
+- **Extension fields registered post-A4** (not yet harvester-indexed; ride along as YAML-readable metadata):
+  - `evidence_quality` (A4): provenance tier (verified / partial / degraded)
+  - `degraded_reason` (A4): one-line WHY when evidence_quality is partial or degraded
+  - `phase_0_skipped_reason` (A4 Row 11): set ONLY when omo-session-distiller_recall unavailable + Phase 0 was skipped; values like "distiller-mcp-unavailable"
+- **Future harvester migration**: when nano-brain or its successor adds support for `evidence_quality`-aware ranking, atoms with `evidence_quality: degraded` will be demoted in recall results. Until then the field is documentation, not enforcement.
 
 ---
 

@@ -112,7 +112,9 @@ This signal propagates to future Phase 0 recall — atoms harvested from degrade
   ```
   > Indexing convention: `line` is **1-based**, `character` is **0-based**. Off-by-one is the most common copy-paste bug here.
 - **Fallback**: `rtk tsc --noEmit` (full compile); `ast_grep_search` for occurrences if LSP is slow
-- **MCP unavailable fallback**: if `lsp_*` not registered → `rtk tsc --noEmit` (or equivalent: `cargo check`, `mypy`, `go vet`) is the canonical substitute — same correctness, slower. Mark `evidence_quality: verified` (compile-time check is authoritative; LSP just provides faster iteration). `ast_grep_search` covers symbol search; mark `evidence_quality: verified` for greppable cases.
+- **MCP unavailable fallback**: if `lsp_*` not registered:
+  - **Compile-check substitute**: `rtk tsc --noEmit` (or equivalent: `cargo check`, `mypy`, `go vet`) is canonical — both LSP and the CLI compiler share the same type-checker core. Mark `evidence_quality: verified` (slower, but same correctness for the row's symptoms).
+  - **Symbol-search substitute**: `ast_grep_search` covers syntactic patterns but does NOT resolve semantic symbol identity across imports, re-exports, generics, or type aliases. For renames or impact analysis it WILL miss aliased re-exports and over-match similarly-named locals. Mark `evidence_quality: verified` ONLY when the symbol is a unique identifier within a single file; mark `evidence_quality: partial` when scope is multi-file or involves re-exports/generics. If you cannot tell which case you're in, assume `partial`.
 
 ### Row 6 — Data-layer bug
 
@@ -138,7 +140,10 @@ This signal propagates to future Phase 0 recall — atoms harvested from degrade
   grep_app_searchGitHub(query="useEffect(() => { return () =>", language=["TSX","TypeScript"])
   ```
 - **Fallback**: `webfetch` to the official changelog; `perplexity_search` for "library X bug Y site:github.com"; `librarian` subagent for deep dive
-- **MCP unavailable fallback**: if `context7_*` not registered → `webfetch` the library's GitHub raw README/CHANGELOG directly; mark `evidence_quality: verified` (raw docs are authoritative). If `grep_app_*` not registered → use `github_search_code` for the same usage-pattern search, or fall back to `perplexity_search` with site:github.com filter; mark `evidence_quality: degraded` (less precise than grep_app's exact-pattern search).
+- **MCP unavailable fallback**: if `context7_*` not registered:
+  - **Current-version questions** ("what does v-latest do"): `webfetch` the library's GitHub raw README/CHANGELOG of `main` branch; mark `evidence_quality: verified` (raw docs are authoritative for current behavior).
+  - **Cross-version questions** ("worked in v3, broke in v4" — which IS in this row's symptom list): you need to webfetch v3's docs AND v4's docs separately and diff manually. context7's version-pinned chunks make this trivial; without context7 it's tedious and error-prone (easy to fetch wrong tag, miss intermediate breaking change). Mark `evidence_quality: degraded` (the answer is correct but the workflow is fragile).
+  - If `grep_app_*` not registered → use `github_search_code` for usage-pattern search, or fall back to `perplexity_search` with `site:github.com` filter; mark `evidence_quality: degraded` (less precise than grep_app's exact-pattern search).
 
 ### Row 8 — Race condition / async ordering / intermittent flake
 
@@ -198,7 +203,12 @@ This signal propagates to future Phase 0 recall — atoms harvested from degrade
   omo-session-distiller_recall(query="tournamentSaga SET_POD before FETCH_LEADERBOARD race", repo="playsweeps-web", limit=5)
   ```
 - **Fallback**: `session_search` to grep raw transcripts; `git log -S "<pattern>"` for code-level history
-- **MCP unavailable fallback**: if `omo-session-distiller_recall` not registered → **skip Phase 0 entirely** (no substitute exists — there is no other index of past-session knowledge). Mark `phase_0_skipped_reason: distiller-mcp-unavailable` in postmortem frontmatter. `session_search` greps current/recent transcripts only (no atom extraction), and `git log -S` finds code patterns but not problem→resolution pairs. Document the skip; do not pretend Phase 0 ran. This is the one row where MCP unavailability fundamentally degrades the skill — the recall loop is the skill's killer feature, and there is no generic substitute.
+- **MCP unavailable fallback**: if `omo-session-distiller_recall` not registered → run **degraded Phase 0** with three partial substitutes IN ORDER (first hit wins):
+  1. **Filesystem grep on prior committed postmortems**: `rtk grep -l "<symptom keyword>" .sisyphus/postmortems/` (if the repo has committed prior postmortems, this IS the closest substitute — atoms' source material grepped directly). Mark `evidence_quality: degraded, degraded_reason: "distiller unavailable; grepped raw postmortems"`.
+  2. **`session_search`** to grep current/recent transcripts for the symptom. Less reliable (transcripts ≠ extracted atoms; no Problem/Resolution structure) but available. Mark `evidence_quality: degraded`.
+  3. **`git log -S "<pattern>"`** to find prior commits that touched the same site. Code-pattern signal only — won't surface problem→resolution pairs but useful when symptom maps to a known code region.
+
+  If ALL three substitutes return nothing, THEN treat as "no hits" and proceed to Phase 1. Mark `phase_0_skipped_reason: distiller-mcp-unavailable` ONLY if you ran zero substitutes (e.g., no repo access at all). Running degraded Phase 0 is strictly better than skipping — the recall loop's killer-feature status doesn't mean its absence is fatal, just that the alternatives are weaker. Document which substitute was used in the postmortem.
 
 ### Row 12 — Regression bisect (worked, then stopped)
 
