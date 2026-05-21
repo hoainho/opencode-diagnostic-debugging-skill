@@ -1,12 +1,12 @@
 ---
 name: diagnostic-driven-debugging
-description: "MUST USE for any non-trivial bug, crash, regression, perf drop, intermittent failure, or 'why is X not working' investigation. Enforces a 5-phase root-cause-first protocol: Phase 0 RECALL (search past session atoms via omo-session-distiller before investigating), Phase 1 REPRODUCE (deterministic trigger), Phase 2 EVIDENCE (MCP routing table picks the right tool per bug class — mcp-console-hub for Redux/network/runtime, ohmyperf for perf regression, database-inspector for data bugs, lsp_diagnostics for type bugs, grep_app for OSS pattern, context7 for library quirks), Phase 3 HYPOTHESIS (ranked, with falsification test each — no 'try a fix and see' allowed), Phase 4 FIX (minimal, root-cause-targeted), Phase 5 POSTMORTEM (capture for future recall hits). MUST USE when: user says 'debug this', 'fix this bug', 'why is X broken', 'tại sao X không chạy', 'X bị lỗi', 'regression after Y', 'broke after deploy', 'intermittent', 'flaky', 'đôi khi lỗi', 'performance regression', 'chậm hơn trước', 'crash on Z', 'TypeError', 'null pointer', 'API returns 500', 'state is wrong', 'render is broken'. Also triggers AFTER subagent-driven-development returns SPEC_FAIL twice for the same task (escalation), or AFTER pr-code-reviewer flags a suspected bug. Triggers when bug is non-trivial (not a typo, not a missing import), when shotgun debugging would waste time, when root cause matters more than speed of fix. When in doubt about whether to use this skill, USE IT — every 'I'll just try this and see' is paid for in lost hours."
+description: "MUST USE for any non-trivial bug, crash, regression, perf drop, intermittent failure, race condition, deadlock, memory leak, hang, or 'why is X not working' investigation. Enforces a 6-phase root-cause-first protocol (Phase 0 RECALL + 5 investigation/fix phases): Phase 0 RECALL (search past session atoms via omo-session-distiller before investigating), Phase 1 REPRODUCE (deterministic trigger), Phase 2 EVIDENCE (MCP routing table picks the right tool per bug class — mcp-console-hub for Redux/network/runtime, ohmyperf for perf regression, database-inspector for data bugs, lsp_diagnostics for type bugs, grep_app for OSS pattern, context7 for library quirks), Phase 3 HYPOTHESIS (ranked, with falsification test each — no 'try a fix and see' allowed), Phase 4 FIX (minimal, root-cause-targeted), Phase 5 POSTMORTEM (capture for future recall hits). MUST USE when: user says 'debug this', 'fix this bug', 'why is X broken', 'tại sao X không chạy', 'X bị lỗi', 'regression after Y', 'broke after deploy', 'intermittent', 'flaky', 'đôi khi lỗi', 'performance regression', 'chậm hơn trước', 'crash on Z', 'TypeError', 'null pointer', 'stack trace', 'stuck on', 'doesn't work as expected', 'memory leak', 'hangs', 'race condition', 'deadlock', 'API returns 500', 'state is wrong', 'render is broken'. Also triggers AFTER subagent-driven-development returns SPEC_FAIL twice for the same task (escalation), or AFTER pr-code-reviewer flags a suspected bug. DO NOT use for typos, missing imports, lint errors with obvious cause, or 'add feature X' requests — see 'Don't use it for' section. When in doubt about whether to use this skill for a non-trivial bug, USE IT — every 'I'll just try this and see' is paid for in lost hours."
 compatibility: "OpenCode"
 metadata:
   version: "0.1.0"
   source: "Adapted from github.com/obra/superpowers (skills/systematic-debugging) — Jesse Vincent"
-  ports: ["4-phase root-cause protocol"]
-  extensions: ["Phase 0 RECALL via omo-session-distiller", "MCP routing table", "Phase 5 POSTMORTEM feedback loop", "oracle consult on Phase 3 stuck"]
+  ports: ["systematic-debugging: Reproduce → Diagnose/Hypothesize → Fix → Verify"]
+  extensions: ["Phase 0 RECALL via omo-session-distiller (new)", "MCP routing table for Phase 2 EVIDENCE (new)", "Phase 5 POSTMORTEM feedback loop (new)", "oracle consult on Phase 3 stuck (new)"]
 ---
 
 # Diagnostic-Driven Debugging
@@ -21,20 +21,22 @@ You become a **diagnostician**. You do NOT touch production code until you have:
 
 Only then do you fix (Phase 4), and you ALWAYS write a postmortem (Phase 5) so future bug encounters get a Phase 0 hit instead of an investigation.
 
-This skill exists because LLM agents debug poorly by default. Without structure, the default behavior is **shotgun debugging** — guess, edit, retry. The 5-phase gate makes guessing structurally impossible.
+This skill exists because LLM agents debug poorly by default. Without structure, the default behavior is **shotgun debugging** — guess, edit, retry. The 6-phase gate (a memory-backed RECALL phase plus 5 investigation/fix phases) makes guessing structurally impossible.
 
 ---
 
-## The 5-Phase Pipeline
+## The 6-Phase Pipeline (Phase 0 RECALL + 5 investigation/fix phases)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  PHASE 0 — RECALL    "Have we debugged this before?"        │
 │                                                             │
 │  • Query omo-session-distiller_recall with bug keywords     │
-│  • Score ≥ 0.7 → read atom resolution → may skip to Phase 4 │
-│  • Score 0.5–0.7 → read but verify before applying          │
-│  • Score < 0.5 OR no hits → proceed to Phase 1              │
+│  • Top hit looks clearly relevant → read atom resolution →  │
+│    may skip to Phase 4 (still write Phase 5 postmortem)     │
+│  • Top hit partially relevant → read, but verify against     │
+│    current symptoms before applying any of its conclusions  │
+│  • No clearly-relevant hits → proceed to Phase 1            │
 │                                                             │
 │  Reference: references/recall-first-checklist.md            │
 └──────────────────────────────┬──────────────────────────────┘
@@ -147,13 +149,15 @@ This skill exists because LLM agents debug poorly by default. Without structure,
 
 ## Files in This Skill
 
-- [SKILL.md](./SKILL.md) — this file (5-phase protocol, hard rules)
-- [skill.json](./skill.json) — registry metadata
-- [references/mcp-routing-table.md](./references/mcp-routing-table.md) — symptom → bug class → MCP
-- [references/anti-patterns.md](./references/anti-patterns.md) — 8+ blocked anti-patterns
-- [references/recall-first-checklist.md](./references/recall-first-checklist.md) — Phase 0 procedure
-- [prompts/oracle-root-cause.md](./prompts/oracle-root-cause.md) — Phase 3 fallback template
-- [prompts/postmortem-template.md](./prompts/postmortem-template.md) — Phase 5 capture template
+> Note: this PR (T2) ships only `SKILL.md` and `skill.json`. Files marked _(T3-T7)_ land in subsequent PRs per the plan in `.opencode/plans/2026-05-21-diagnostic-driven-debugging.md`. Links below resolve as those PRs merge.
+
+- [SKILL.md](./SKILL.md) — this file (6-phase protocol, hard rules) — _T2_
+- [skill.json](./skill.json) — registry metadata — _T2_
+- [references/mcp-routing-table.md](./references/mcp-routing-table.md) — symptom → bug class → MCP — _T3_
+- [references/anti-patterns.md](./references/anti-patterns.md) — 8+ blocked anti-patterns — _T4_
+- [references/recall-first-checklist.md](./references/recall-first-checklist.md) — Phase 0 procedure — _T5_
+- [prompts/oracle-root-cause.md](./prompts/oracle-root-cause.md) — Phase 3 fallback template — _T6_
+- [prompts/postmortem-template.md](./prompts/postmortem-template.md) — Phase 5 capture template — _T7_
 
 ---
 
