@@ -74,16 +74,20 @@ Spec from Jira: open Daily Bonus → reveal lootbox → reload/close-and-open-on
 
 ### Phase 2 (atom-seeded evidence collection)
 
-The B2.1 atom's "Related files" section already points at:
-- `src/redux/dailyBonus/reducer.ts:50-156` (`correctCurrentDay`, the status-mapping function)
-- `src/redux/dailyBonus/reducer.ts:123-136` (`GET_DAILY_BONUS_STATUS_V3` success handler)
+The B2.1 atom's "Related files" section points at code REGIONS (not exact lines for this new bug):
+- `src/redux/dailyBonus/reducer.ts:50-71` (`correctCurrentDay`, the status-mapping function)
+- `src/redux/dailyBonus/reducer.ts:53` (`isClaimable` formula)
+- `src/redux/dailyBonus/reducer.ts:116-122` (`UPDATE_DAILY_BONUS_DATA_V3` case)
+- `src/redux/dailyBonus/reducer.ts:123-136` (`GET_DAILY_BONUS_STATUS_V3` success case — this region contains the `pendingRevealedDay` setter at line 128)
 
-One targeted grep:
+The atom loaded the right neighborhood. **One targeted grep then narrowed to the exact line**:
 ```
 rg -n "pendingRevealedDay|revealedReward" src/redux/dailyBonus/
 ```
 
 Returns `reducer.ts:24` (state field declaration), `reducer.ts:128` (set when `Status === Pending && isClaimable`), `selectors.ts:41` (`makeSelectPendingRevealedDay`).
+
+**Credit split**: atom = code region (≈14 lines, 123-136); `rg` = exact line (128). The atom didn't pre-name line 128, but it removed the entire "where is the relevant handler?" search step.
 
 ### Phase 3 — Single hypothesis (atom-seeded)
 
@@ -111,7 +115,7 @@ Captured in `.sisyphus/postmortems/2026-05-21-pilot-5-WIN-7906-daily-bonus-reloa
 |---|---|
 | Phase 0 surfaces a pilot atom as Clearly/Partially Relevant | ✅ B2.1 at top (Partially Relevant, score 38, gap 9 to B2.3) |
 | Wall-clock <50% of the related pilot's diagnostic time | ✅ 54s / 150s = **36%** |
-| Atom drives Phase 3 hypothesis (not just retrieved-but-ignored) | ✅ B2.1's "Related files" directly seeded the Phase 3 single-hypothesis at reducer.ts:128 |
+| Atom drives Phase 3 hypothesis (not just retrieved-but-ignored) | ✅ B2.1's "Related files" seeded the code REGION (`reducer.ts:123-136` — `GET_DAILY_BONUS_STATUS_V3` success handler); `rg pendingRevealedDay` narrowed to the exact line :128. The atom didn't cite :128 verbatim; it loaded the right neighborhood and `rg` finished the locate. Net: atom-driven compression is real, but credit-where-it's-due — atom = region, `rg` = exact line. |
 | Phase 5 postmortem written + chained to the prior atom | ✅ chained_atoms field used (informal, not yet harvester-indexed per A4 extension-fields tier) |
 
 **Stage B4 passes.** Stage B is genuinely complete. Stage C (metrics + comparison + status declaration) is unblocked.
