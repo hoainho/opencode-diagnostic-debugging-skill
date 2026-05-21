@@ -61,11 +61,13 @@ The tool returns ranked atom hits, each with a Problem statement and a Resolutio
 
 | Relevance | Indicator | Action |
 |---|---|---|
-| **Clearly relevant** | Top hit's Problem text describes a symptom that closely matches yours, with overlap in affected feature + symptom verb + (ideally) triggering condition | Read the full Resolution. If the resolution explains the bug mechanism, you may fast-path to **Phase 4** (apply the fix, verify with reproduce), still writing a Phase 5 postmortem that references the original atom. |
+| **Clearly relevant** (tentative — confirm in Step 5) | Top hit's Problem text describes a symptom that closely matches yours, with overlap in affected feature + symptom verb + (ideally) triggering condition | Read the full Resolution. **Do not fast-path yet** — proceed to Step 5 to verify the prior fix is still in code. Step 5 confirms or demotes this classification. |
 | **Partially relevant** | Hit's Problem touches the feature but the symptom or condition differs | Read it as context, but **do not apply blindly**. Use it to inform Phase 3 hypothesis generation. Continue to Phase 1. |
 | **No clearly-relevant hits** | All hits are on different features or unrelated symptoms | Proceed to Phase 1. Note in your Phase 5 postmortem that recall produced no useful hits (so future queries can learn from this gap). |
 
-### Step 5 — Verify the prior fix is still present (if Clearly Relevant)
+### Step 5 — Verify the prior fix is still present (confirms Clearly-Relevant tentative)
+
+This step **finalizes the Step 4 classification**. Tentative "Clearly Relevant" hits become either confirmed (fast-path) or demoted to "Partially Relevant" (continue to Phase 1) based on whether the prior fix is still in the code.
 
 If you got a Clearly Relevant hit and intend to fast-path:
 
@@ -74,8 +76,8 @@ If you got a Clearly Relevant hit and intend to fast-path:
    omo-session-distiller_expand(atom_id="<atom-id-or-slug>", around=2)
    ```
 2. **Verify the previously-applied fix is still in the code**. Bug regressions happen — the prior fix may have been refactored away. Use `lsp_find_references` or `rtk grep` on the key symbols from the Resolution.
-3. If the fix is **still present**: this is NOT the same bug — the prior fix didn't cover this case. Continue to Phase 1.
-4. If the fix is **gone**: that's likely the bug. Re-apply with appropriate adaptation, then continue to Phase 5.
+3. If the fix is **still present**: **demote the classification to Partially Relevant**. This is NOT the same bug — the prior fix didn't cover this case. The atom remains useful as a Phase 3 hypothesis seed. Continue to Phase 1.
+4. If the fix is **gone**: classification stays Clearly Relevant — that's likely the bug. Re-apply with appropriate adaptation, then continue to Phase 5 (still write the postmortem; this regression is itself worth recording).
 
 ---
 
