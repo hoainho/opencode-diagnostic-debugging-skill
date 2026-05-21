@@ -58,6 +58,7 @@ Likely fix sites:
 
 ## Open Risks
 - **Falsification not executed**: 3 hypotheses formed but none confirmed. Backend assignee handoff required for QA2 BI dashboard inspection + bi-event-worker repo read.
+- **A vs C falsification overlap** (per B2.2 review C1): both hypotheses predict same observable dashboard surface (`source_name="sync_nexus"`). Discrimination requires PRD/spec lookup for the LP-earning BI contract IN ADDITION to dashboard inspection. Reinforces the A3 cap-rule follow-up — cap should measure unique-falsification-cost not raw hypothesis count, and surface-overlap is exactly the case it must handle.
 - **Cross-repo scope without all repos**: skill's Row 9 (build/dep) fallback doesn't cover runtime event-flow across EventHub-connected repos. Filing as Stage A4 follow-up: routing table needs explicit "cross-repo runtime event-flow" subsection with handoff template.
 - **n=2 speedup data**: B2.1 was ~2.5min (single-repo state-desync), B2.2 is ~5.3min (cross-repo BI event flow). Sample size still too small for any aggregate claim; Stage C1 calibrates after all 4 pilots.
 

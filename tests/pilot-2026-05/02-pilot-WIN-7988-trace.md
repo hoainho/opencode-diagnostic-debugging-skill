@@ -91,6 +91,19 @@ Per AGENTS.md: `playsweeps-bi-event` is a microservice; `playsweeps-bi-event-wor
 
 A=5min, B=5min, C=10min. A and B are equal cost; A is most likely (matches "missing fields" symptom most directly). Run A first → if `source_name = "sync_nexus"` confirmed in dashboard, A is the bug. If empty/null, run B (bi-event-worker code read). C is fallback if A and B both miss.
 
+### Important — A vs C falsification overlap (per B2.2 review C1)
+
+**Dashboard inspection alone does NOT cleanly discriminate A from C.** Both hypotheses predict the same observable surface: BI dashboard shows `source_name="sync_nexus"` from `PsPlayerBalanceService.cs:154-156`. The mechanisms differ (A = "this IS the LP emit, value is wrong"; C = "this is NOT the LP emit, the LP emit doesn't exist") but the dashboard reads identical.
+
+Distinguishing A from C **also requires a PRD/spec lookup** answering: "Was the existing `PsPlayerBalanceService` emit ever meant to fire for slot LP earning, or was a separate LP-specific emit supposed to fire here?"
+
+- If spec says "yes, sync_nexus IS the LP path, just rename source for LP attribution" → **A**: fix at `PsPlayerBalanceService` to pass an LP-specific eventSource value through.
+- If spec says "no, slot LP earning should fire a dedicated emit with semantic source_name='lp_earning' + source_id=slotId" → **C**: add the missing emit path, the existing `sync_nexus` event is the wrong artifact entirely.
+
+Backend assignee needs BOTH the dashboard inspection AND the PRD/spec for the LP-earning BI contract. Falsification work for A vs C is more entangled than "1 dashboard inspection."
+
+This is exactly the kind of overlap the A3 cap rule was designed for — `count: 2 hypotheses sharing surface, requires +1 unique work unit for disambiguation`. Filed as A3 follow-up reinforcement (cap should measure unique-falsification-cost, not raw count).
+
 ## Phase 4 — FIX (not executed)
 
 Skipped per Stage B contract. Likely fix sites:
